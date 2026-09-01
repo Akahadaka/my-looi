@@ -23,11 +23,11 @@ assert.equal(app.expo.version, pkg.version);
 const patchVersion = Number(pkg.version.split(".")[2]);
 assert.ok(Number.isInteger(patchVersion) && patchVersion >= 116, "v2.1.116 identity/Drive/signing regression must remain active in later releases");
 assert.ok(app.expo.android.versionCode >= 116);
-assert.equal(app.expo.name, "My LOOI");
+assert.equal(app.expo.name, "My LOOI (Fork)");
 assert.equal(app.expo.slug, "my-looi");
 assert.equal(app.expo.scheme, "mylooi");
-assert.equal(app.expo.android.package, "io.github.razor79.mylooi");
-assert.equal(app.expo.ios.bundleIdentifier, "io.github.razor79.mylooi");
+assert.equal(app.expo.android.package, "io.github.akahadaka.mylooi");
+assert.equal(app.expo.ios.bundleIdentifier, "io.github.akahadaka.mylooi");
 assert.notEqual(app.expo.android.package, "com.anonymous.superlooiapp");
 
 if (patchVersion < 119) {
@@ -78,7 +78,7 @@ for (const doc of [readme, features, privacy]) {
   assert.match(doc, /Google Drive/);
   if (patchVersion >= 119) assert.doesNotMatch(doc, /drive\.file|Google Picker API|Google Drive API/);
 }
-assert.match(building, /io\.github\.razor79\.mylooi/);
+assert.match(building, /io\.github\.akahadaka\.mylooi/);
 assert.match(building, /create-release-keystore\.sh/);
 assert.match(building, /MY_LOOI_RELEASE_KEYSTORE/);
 if (patchVersion >= 119) assert.doesNotMatch(building, /Google Picker API|Google Drive API|drive\.file/);

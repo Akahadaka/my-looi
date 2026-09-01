@@ -8,7 +8,7 @@
 - Android SDK 36
 - Android build-tools 36.0.0
 
-The standalone Android application ID is `io.github.razor79.mylooi`.
+The standalone Android application ID for this fork is `io.github.akahadaka.mylooi` (upstream uses `io.github.razor79.mylooi`; the fork ID allows side-by-side installation).
 
 ## Install and validate
 
