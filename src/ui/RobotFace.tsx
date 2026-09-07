@@ -126,7 +126,11 @@ const FACE_PALETTES: Record<FacePaletteId, FacePaletteVisual> = {
   },
 };
 
-export function RobotFace({
+export function RobotFace(props: RobotFaceProps) {
+  return <ClassicRobotFace {...props} />;
+}
+
+function ClassicRobotFace({
   mode = "fullscreen",
   onPress,
   onLongPress,

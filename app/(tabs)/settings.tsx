@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Alert, PermissionsAndroid, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Linking, PermissionsAndroid, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import Constants from "expo-constants";
 import { useFocusEffect } from "expo-router";
 
@@ -8,6 +8,7 @@ import { looiTheme } from "@/src/ui/looi-theme";
 import { useUserStore, type ConversationMode, type CustomVoiceCommandAction, type FacePaletteId, type FaceStyleId, type VoiceCommandLanguage } from "@/src/store/user";
 import { voiceRuntime } from "@/src/perceivers/voice-runtime";
 import { parseRealtimePhysicalCommand } from "@/src/voice/realtime-physical-command";
+import { parseRealtimeVisualCommand } from "@/src/voice/realtime-visual-command";
 import { syncVoiceRuntime } from "@/src/core/app-bootstrap";
 import { recordDiagnosticEvent, clearDiagnosticLog, getDiagnosticLogEntries } from "@/src/diagnostics/diagnostic-log";
 import {
@@ -30,6 +31,7 @@ import {
   saveOpenAiApiKey,
   validateOpenAiApiKey,
 } from "@/src/openai/openai-api-key";
+import { getOpenAiApiStatus, type OpenAiApiStatus } from "@/src/openai/openai-api-status";
 import {
   DEFAULT_REALTIME_MODEL_ID,
   formatConversationCostPerMinute,
@@ -84,6 +86,10 @@ const REALTIME_VOICE_ORDER = ["marin", "cedar", "coral", "verse", "sage", "shimm
 const CURATED_VOICES = [...REALTIME_VOICE_OPTIONS].sort(
   (a, b) => REALTIME_VOICE_ORDER.indexOf(a.id) - REALTIME_VOICE_ORDER.indexOf(b.id)
 );
+const VOICE_OUTPUT_GAIN_OPTIONS = [1, 1.15, 1.3, 1.45] as const;
+
+const OPENAI_BILLING_URL = "https://platform.openai.com/settings/organization/billing/overview";
+const MY_LOOI_USER_GUIDE_URL = "https://github.com/razor79/my-looi/blob/main/USER_GUIDE.md";
 
 type SharedModelStatus = Awaited<ReturnType<typeof checkAllSherpaModelReadiness>>;
 
@@ -100,10 +106,12 @@ export default function SettingsScreen() {
   const { language: interfaceLanguage, t } = useUiText();
   const [advanced, setAdvanced] = useState(false);
   const [voicesExpanded, setVoicesExpanded] = useState(false);
+  const [previousModelsExpanded, setPreviousModelsExpanded] = useState(false);
   const [openAiKeyConfigured, setOpenAiKeyConfigured] = useState(false);
   const [openAiKeyInput, setOpenAiKeyInput] = useState("");
   const [openAiKeyBusy, setOpenAiKeyBusy] = useState(false);
   const [openAiKeyResult, setOpenAiKeyResult] = useState<string | null>(null);
+  const [openAiApiStatus, setOpenAiApiStatusState] = useState<OpenAiApiStatus>({ kind: "unknown", checkedAt: null });
   const [openAiModels, setOpenAiModels] = useState<OpenAiRealtimeModel[]>([]);
   const [openAiModelsBusy, setOpenAiModelsBusy] = useState(false);
   const [openAiModelsResult, setOpenAiModelsResult] = useState<string | null>(null);
@@ -128,7 +136,8 @@ export default function SettingsScreen() {
 
   const refreshOpenAi = useCallback(() => {
     void hasOpenAiApiKey().then(setOpenAiKeyConfigured).catch(() => setOpenAiKeyConfigured(false));
-  }, [t]);
+    void getOpenAiApiStatus().then(setOpenAiApiStatusState).catch(() => setOpenAiApiStatusState({ kind: "unknown", checkedAt: null }));
+  }, []);
 
   const refreshOpenAiModels = useCallback(async () => {
     setOpenAiModelsBusy(true);
@@ -157,6 +166,7 @@ export default function SettingsScreen() {
       setOpenAiModelsResult(t("settings.modelsError", { message: error instanceof Error ? error.message : String(error) }));
     } finally {
       setOpenAiModelsBusy(false);
+      void getOpenAiApiStatus().then(setOpenAiApiStatusState).catch(() => undefined);
     }
   }, [t, updatePreferences]);
 
@@ -214,6 +224,7 @@ export default function SettingsScreen() {
       setOpenAiKeyInput("");
       setOpenAiKeyConfigured(true);
       setOpenAiKeyResult(t("settings.keySavedLocal"));
+      setOpenAiApiStatusState({ kind: "unknown", checkedAt: null });
       void refreshOpenAiModels();
     } catch (error) {
       setOpenAiKeyResult(t("common.error", { message: error instanceof Error ? error.message : String(error) }));
@@ -229,10 +240,25 @@ export default function SettingsScreen() {
           setOpenAiKeyConfigured(false);
           setOpenAiModels([]);
           setOpenAiModelsResult(null);
+          setOpenAiApiStatusState({ kind: "unknown", checkedAt: null });
           setOpenAiKeyResult(t("settings.keyDeleted"));
         }).finally(() => setOpenAiKeyBusy(false));
       } },
     ]);
+  }, [t]);
+
+  const refreshOpenAiStatus = useCallback(async () => {
+    if (!openAiKeyConfigured || openAiModelsBusy) return;
+    await refreshOpenAiModels();
+    setOpenAiApiStatusState(await getOpenAiApiStatus());
+  }, [openAiKeyConfigured, openAiModelsBusy, refreshOpenAiModels]);
+
+  const openExternalUrl = useCallback(async (reason: string, url: string) => {
+    try {
+      await withExternalActivityLease(reason, () => Linking.openURL(url));
+    } catch (error) {
+      setOpenAiKeyResult(t("common.error", { message: error instanceof Error ? error.message : String(error) }));
+    }
   }, [t]);
 
   const previewVoice = useCallback(async (voiceId: string) => {
@@ -467,17 +493,20 @@ export default function SettingsScreen() {
   return (
     <DeviceShell title={t("settings.title")} eyebrow="MY LOOI">
       <View style={styles.summaryGrid}>
-        <Summary label={t("settings.summary.mode")} value={preferences.conversationMode === "realtime_pcm" ? "Realtime PCM" : preferences.conversationMode} ok={preferences.conversationMode === "realtime_pcm"} />
-        <Summary label="OpenAI" value={openAiKeyConfigured ? t("settings.summary.keySaved") : t("settings.summary.keyNeeded")} ok={openAiKeyConfigured} />
+        <Summary
+          label="OpenAI"
+          value={!openAiKeyConfigured
+            ? t("settings.summary.keyNeeded")
+            : openAiApiStatus.kind === "no_credits"
+              ? t("settings.openAiStatus.no_credits")
+              : openAiApiStatus.kind === "invalid_key"
+                ? t("settings.openAiStatus.invalid_key")
+                : t("settings.summary.keySaved")}
+          ok={openAiKeyConfigured && openAiApiStatus.kind !== "no_credits" && openAiApiStatus.kind !== "invalid_key"}
+        />
         <Summary label={t("settings.summary.local")} value={sharedReady ? t("settings.summary.localReady") : t("settings.summary.localCheck")} ok={sharedReady} />
         <Summary label={t("settings.summary.robot")} value={robotRuntime.connected ? t("settings.summary.robotConnected") : robotUi.saved ? t("settings.summary.robotSaved") : t("settings.summary.robotNone")} ok={robotRuntime.connected} neutral={!robotRuntime.connected} />
       </View>
-
-      <Section title={t("settings.conversation")}>
-        <Text style={styles.help}>{t("settings.conversationHelp")}</Text>
-        <Choice selected={preferences.conversationMode === "realtime_pcm"} label="Realtime PCM" detail={t("settings.primary")} onPress={() => selectConversationMode("realtime_pcm")} />
-        <SwitchRow label={t("settings.addressWake")} value={preferences.wakeWordEnabled} onPress={() => updatePreferences({ wakeWordEnabled: !preferences.wakeWordEnabled })} />
-      </Section>
 
       <Section title={t("settings.language")}>
         <Text style={styles.label}>{t("settings.interfaceLanguage")}</Text>
@@ -497,6 +526,16 @@ export default function SettingsScreen() {
         </ButtonRow>
         {openAiKeyResult ? <Text style={styles.result}>{openAiKeyResult}</Text> : null}
         <View style={styles.subCard}>
+          <Text style={styles.label}>{t("settings.openAiBalanceStatus")}</Text>
+          <Text style={styles.value}>{t(`settings.openAiStatus.${openAiApiStatus.kind}` as any)}</Text>
+          <Text style={styles.help}>{t("settings.openAiBalanceHelp")}</Text>
+          {openAiApiStatus.checkedAt ? <Text style={styles.help}>{t("settings.openAiStatusChecked", { time: new Date(openAiApiStatus.checkedAt).toLocaleString() })}</Text> : null}
+          <ButtonRow>
+            <Action label={t("settings.checkOpenAiStatus")} onPress={() => void refreshOpenAiStatus()} disabled={!openAiKeyConfigured || openAiModelsBusy} secondary />
+            <Action label={t("settings.openAiBilling")} onPress={() => void openExternalUrl("openai-billing", OPENAI_BILLING_URL)} secondary />
+          </ButtonRow>
+        </View>
+        <View style={styles.subCard}>
           <Text style={styles.label}>{t("settings.model")}</Text>
           <Text style={styles.help}>{t("settings.modelsHelp")}</Text>
           <Action label={openAiModelsBusy ? t("settings.refreshingModels") : t("settings.refreshModels")} onPress={() => void refreshOpenAiModels()} disabled={openAiModelsBusy || !openAiKeyConfigured} secondary />
@@ -512,14 +551,21 @@ export default function SettingsScreen() {
             return <Choice key={model.id} selected={preferences.realtimeModelId === model.id} label={formatRealtimeModelName(model.id)} detail={detail} tone={tone} onPress={() => updatePreferences({ realtimeModelId: model.id })} />;
           })}
           {previousRealtimeModels.length ? <View style={styles.previousModelsBox}>
-            <Text style={styles.previousModelsTitle}>{t("settings.previousModels")}</Text>
-            <Text style={styles.help}>{t("settings.previousModelsHelp")}</Text>
-            {previousRealtimeModels.map((model) => {
-              const cost = formatConversationCostPerMinute(model.id, interfaceLanguage);
-              const note = model.id === "gpt-realtime-2" ? t("settings.previousFullModel") : model.id === "gpt-realtime-1.5" ? t("settings.previousVoiceModel") : null;
-              const detail = [cost ?? t("settings.costUnknown"), note].filter(Boolean).join(" · ");
-              return <Choice key={model.id} selected={preferences.realtimeModelId === model.id} label={formatRealtimeModelName(model.id)} detail={detail} tone="previous" onPress={() => updatePreferences({ realtimeModelId: model.id })} />;
-            })}
+            <DisclosureRow
+              label={t("settings.previousModels")}
+              expanded={previousModelsExpanded}
+              onPress={() => setPreviousModelsExpanded((value) => !value)}
+              compact
+            />
+            {previousModelsExpanded ? <View style={styles.disclosureBody}>
+              <Text style={styles.help}>{t("settings.previousModelsHelp")}</Text>
+              {previousRealtimeModels.map((model) => {
+                const cost = formatConversationCostPerMinute(model.id, interfaceLanguage);
+                const note = model.id === "gpt-realtime-2" ? t("settings.previousFullModel") : model.id === "gpt-realtime-1.5" ? t("settings.previousVoiceModel") : null;
+                const detail = [cost ?? t("settings.costUnknown"), note].filter(Boolean).join(" · ");
+                return <Choice key={model.id} selected={preferences.realtimeModelId === model.id} label={formatRealtimeModelName(model.id)} detail={detail} tone="previous" onPress={() => updatePreferences({ realtimeModelId: model.id })} />;
+              })}
+            </View> : null}
           </View> : null}
           {!openAiModelsBusy && openAiKeyConfigured && realtimeModels.length === 0 ? <Text style={styles.help}>{t("settings.modelsNotLoaded")}</Text> : null}
           {openAiModelsResult ? <Text style={styles.result}>{openAiModelsResult}</Text> : null}
@@ -534,21 +580,31 @@ export default function SettingsScreen() {
           {curatedVoices.map((voice) => <VoiceChoice key={voice.id} selected={preferences.ttsVoiceId === voice.id} label={voice.name} detail={`${getLocalizedVoiceDescription(interfaceLanguage, voice.id, voice.description)}${voice.id === "marin" || voice.id === "cedar" ? ` · ${t("settings.voiceRecommended")}` : ""}`} onSelect={() => updatePreferences({ ttsVoiceId: voice.id })} onPreview={() => void previewVoice(voice.id)} previewing={voicePreviewBusy === voice.id} previewDisabled={Boolean(voicePreviewBusy) || !openAiKeyConfigured} />)}
           {voicePreviewResult ? <Text style={styles.result}>{voicePreviewResult}</Text> : null}
         </View> : null}
+        <Text style={styles.label}>{t("settings.speechGender")}</Text>
+        <Text style={styles.help}>{t("settings.speechGenderHelp")}</Text>
+        <ButtonRow>
+          <SmallChoice selected={preferences.speechGender === "masculine"} label={t("settings.speechGenderMasculine")} onPress={() => updatePreferences({ speechGender: "masculine" })} />
+          <SmallChoice selected={preferences.speechGender === "feminine"} label={t("settings.speechGenderFeminine")} onPress={() => updatePreferences({ speechGender: "feminine" })} />
+        </ButtonRow>
         <Text style={styles.label}>{t("settings.speed")}</Text>
         <ButtonRow>{TTS_SPEED_OPTIONS.map((speed) => <SmallChoice key={speed} selected={preferences.ttsSpeed === speed} label={`${speed}×`} onPress={() => updatePreferences({ ttsSpeed: speed })} />)}</ButtonRow>
+        <Text style={styles.label}>{t("settings.voiceOutputGain")}</Text>
+        <Text style={styles.help}>{t("settings.voiceOutputGainHelp")}</Text>
+        <ButtonRow>{VOICE_OUTPUT_GAIN_OPTIONS.map((gain) => <SmallChoice key={gain} selected={preferences.voiceOutputGain === gain} label={gain === 1 ? t("settings.voiceOutputGainNormal") : `+${Math.round((gain - 1) * 100)}%`} onPress={() => updatePreferences({ voiceOutputGain: gain })} />)}</ButtonRow>
       </Section>
 
       <VoiceCommandsSettings />
       <FaceAppearanceSettings />
 
-      <Section title={t("settings.localModels")}>
+      {(Boolean(modelStatus) && !sharedReady) || modelBusy || Boolean(modelError) ? <Section title={t("settings.localModels")}>
+        <Text style={styles.help}>{t("settings.localModelsMissingHelp")}</Text>
         <ModelLine label={t("settings.sharedStt")} status={modelStatus?.asr} />
         <ModelLine label={t("settings.wakeWord")} status={modelStatus?.kws} />
         <ModelLine label={t("settings.vad")} status={modelStatus?.vad} />
         <ButtonRow><Action label={modelBusy ? t("onboarding.downloading") : t("settings.check")} onPress={() => void refreshModels()} disabled={modelBusy} secondary /><Action label={t("settings.downloadMissing")} onPress={downloadModels} disabled={modelBusy} /></ButtonRow>
         {modelProgress ? <Text style={styles.help}>{getLocalizedModelDownloadStage(interfaceLanguage, modelProgress.stage, modelProgress.label)} · {Math.round(modelProgress.progress * 100)}%</Text> : null}
         {modelError ? <Text style={styles.error}>{modelError}</Text> : null}
-      </Section>
+      </Section> : null}
 
       <Section title={t("settings.robot")}>
         <Text style={styles.help}>{robotUi.saved ? t("settings.robotSaved", { name: robotUi.saved.name }) : t("settings.robotNotSelected")} · BLE: {robotRuntime.connected ? "connected" : robotRuntime.connecting ? "connecting" : "offline"}</Text>
@@ -576,26 +632,9 @@ export default function SettingsScreen() {
         {robotUi.result ? <Text style={styles.result}>{robotUi.result}</Text> : null}
       </Section>
 
-      <Section title={t("settings.memoryBackup")}>
-        <Text style={styles.help}>{memoryStats ? t("settings.memoryStats", { facts: memoryStats.memoryCount, sessions: memoryStats.sessionCount, messages: memoryStats.messageCount }) : t("settings.memoryCounting")}</Text>
-        <Text style={styles.help}>{t("settings.backupFolder", { folder: backupFolder?.displayName || backupFolder?.providerName || t("common.notSelected") })}</Text>
-        <ButtonRow><Action label={t("settings.chooseFolder")} onPress={chooseBackup} disabled={backupBusy} secondary /><Action label={t("settings.backupNow")} onPress={backupNow} disabled={backupBusy || !backupFolder} /><Action label={t("common.restore")} onPress={restoreNow} disabled={backupBusy || !backupFolder} secondary /></ButtonRow>
-        {backupFolder ? <Action label={t("settings.forgetBackupFolder")} onPress={forgetBackupFolder} disabled={backupBusy} secondary /> : null}
-        {backupResult ? <Text style={styles.result}>{backupResult}</Text> : null}
-      </Section>
-
-      <Section title={t("settings.diagnostics")}>
-        <Text style={styles.help}>{t("settings.diagnosticsHelp", { count: getDiagnosticLogEntries().length })}</Text>
-        <ButtonRow>
-          <Action label={diagnosticBusy ? t("common.wait") : t("settings.shareZip")} onPress={() => void shareDiagnostics()} disabled={diagnosticBusy} />
-        </ButtonRow>
-        <Text style={styles.help}>{t("settings.localFolder", { folder: diagnosticFolder?.displayName || diagnosticFolder?.providerName || t("common.notSelected") })}</Text>
-        <ButtonRow>
-          <Action label={t("settings.chooseLocalFolder")} onPress={() => void chooseDiagnosticFolder()} disabled={diagnosticBusy} secondary />
-          <Action label={t("settings.saveLocal")} onPress={() => void saveDiagnosticsToFolder()} disabled={diagnosticBusy || !diagnosticFolder} />
-        </ButtonRow>
-        <Action label={t("settings.clearDiagnostics")} onPress={() => void clearDiagnostics()} disabled={diagnosticBusy} secondary />
-        {diagnosticResult ? <Text style={styles.result}>{diagnosticResult}</Text> : null}
+      <Section title={t("settings.helpGuide")}>
+        <Text style={styles.help}>{t("settings.helpGuideText")}</Text>
+        <Action label={t("settings.openUserGuide")} onPress={() => void openExternalUrl("user-guide", MY_LOOI_USER_GUIDE_URL)} secondary />
       </Section>
 
       <Section title={t("settings.updates")}>
@@ -613,8 +652,32 @@ export default function SettingsScreen() {
       <View style={styles.sectionWide}>
         <Pressable onPress={() => setAdvanced(!advanced)} style={styles.advancedHeader}><Text style={styles.sectionTitle}>{t("settings.advanced")}</Text><Text style={styles.value}>{advanced ? t("common.hide") : t("common.open")}</Text></Pressable>
         {advanced ? <View style={styles.card}>
-          <Text style={styles.help}>{t("settings.webrtcHelp")}</Text>
-          <Choice selected={preferences.conversationMode === "realtime"} label="Realtime WebRTC (legacy A/B)" detail={t("common.fallback")} onPress={() => selectConversationMode("realtime")} />
+          <View style={styles.subCard}>
+            <Text style={styles.label}>{t("settings.memoryBackup")}</Text>
+            <Text style={styles.help}>{memoryStats ? t("settings.memoryStats", { facts: memoryStats.memoryCount, sessions: memoryStats.sessionCount, messages: memoryStats.messageCount }) : t("settings.memoryCounting")}</Text>
+            <Text style={styles.help}>{t("settings.backupFolder", { folder: backupFolder?.displayName || backupFolder?.providerName || t("common.notSelected") })}</Text>
+            <ButtonRow><Action label={t("settings.chooseFolder")} onPress={chooseBackup} disabled={backupBusy} secondary /><Action label={t("settings.backupNow")} onPress={backupNow} disabled={backupBusy || !backupFolder} /><Action label={t("common.restore")} onPress={restoreNow} disabled={backupBusy || !backupFolder} secondary /></ButtonRow>
+            {backupFolder ? <Action label={t("settings.forgetBackupFolder")} onPress={forgetBackupFolder} disabled={backupBusy} secondary /> : null}
+            {backupResult ? <Text style={styles.result}>{backupResult}</Text> : null}
+          </View>
+
+          <View style={styles.subCard}>
+            <Text style={styles.label}>{t("settings.diagnostics")}</Text>
+            <Text style={styles.help}>{t("settings.diagnosticsHelp", { count: getDiagnosticLogEntries().length })}</Text>
+            <ButtonRow><Action label={diagnosticBusy ? t("common.wait") : t("settings.shareZip")} onPress={() => void shareDiagnostics()} disabled={diagnosticBusy} /></ButtonRow>
+            <Text style={styles.help}>{t("settings.localFolder", { folder: diagnosticFolder?.displayName || diagnosticFolder?.providerName || t("common.notSelected") })}</Text>
+            <ButtonRow>
+              <Action label={t("settings.chooseLocalFolder")} onPress={() => void chooseDiagnosticFolder()} disabled={diagnosticBusy} secondary />
+              <Action label={t("settings.saveLocal")} onPress={() => void saveDiagnosticsToFolder()} disabled={diagnosticBusy || !diagnosticFolder} />
+            </ButtonRow>
+            <Action label={t("settings.clearDiagnostics")} onPress={() => void clearDiagnostics()} disabled={diagnosticBusy} secondary />
+            {diagnosticResult ? <Text style={styles.result}>{diagnosticResult}</Text> : null}
+          </View>
+
+          <View style={styles.subCard}>
+            <Text style={styles.help}>{t("settings.webrtcHelp")}</Text>
+            <Choice selected={preferences.conversationMode === "realtime"} label="Realtime WebRTC (legacy A/B)" detail={t("common.fallback")} onPress={() => selectConversationMode("realtime")} />
+          </View>
         </View> : null}
       </View>
 
@@ -699,7 +762,7 @@ function PaletteChoice({ selected, label, colors, onPress }: { selected: boolean
 }
 
 const VOICE_COMMAND_ACTIONS: CustomVoiceCommandAction[] = [
-  "emergency_stop", "forward", "backward", "left", "right", "turn_around", "nod", "dance", "sleep",
+  "emergency_stop", "forward", "backward", "left", "right", "turn_around", "nod", "dance", "sleep", "look_here",
 ];
 
 function VoiceCommandsSettings() {
@@ -771,13 +834,22 @@ function VoiceCommandsSettings() {
 
   const runSafeTest = () => {
     const parsed = parseRealtimePhysicalCommand(testText, preferences);
-    if (!parsed) { setTestResult(t("settings.voiceCommandsTestNoMatch")); return; }
-    const result = parsed.kind === "emergency-stop" ? t("settings.voiceAction.emergency_stop") : parsed.command.kind === "move"
-      ? parsed.command.direction === "forward" ? t("settings.voiceAction.forward") : parsed.command.direction === "backward" ? t("settings.voiceAction.backward") : t("settings.voiceAction.emergency_stop")
-      : parsed.command.kind === "turn" ? parsed.command.degrees === 180 ? t("settings.voiceAction.turn_around") : parsed.command.direction === "left" ? t("settings.voiceAction.left") : t("settings.voiceAction.right")
-      : parsed.command.kind === "gesture" ? t("settings.voiceAction.nod") : parsed.command.kind === "dance" ? t("settings.voiceAction.dance") : t("settings.voiceAction.sleep");
-    setTestResult(t("settings.voiceCommandsTestMatched", { action: result }));
-    recordDiagnosticEvent("runtime", "voice-command-safe-test", { matched: true, kind: parsed.kind });
+    if (parsed) {
+      const result = parsed.kind === "emergency-stop" ? t("settings.voiceAction.emergency_stop") : parsed.command.kind === "move"
+        ? parsed.command.direction === "forward" ? t("settings.voiceAction.forward") : parsed.command.direction === "backward" ? t("settings.voiceAction.backward") : t("settings.voiceAction.emergency_stop")
+        : parsed.command.kind === "turn" ? parsed.command.degrees === 180 ? t("settings.voiceAction.turn_around") : parsed.command.direction === "left" ? t("settings.voiceAction.left") : t("settings.voiceAction.right")
+        : parsed.command.kind === "gesture" ? t("settings.voiceAction.nod") : parsed.command.kind === "dance" ? t("settings.voiceAction.dance") : t("settings.voiceAction.sleep");
+      setTestResult(t("settings.voiceCommandsTestMatched", { action: result }));
+      recordDiagnosticEvent("runtime", "voice-command-safe-test", { matched: true, kind: parsed.kind });
+      return;
+    }
+    const visual = parseRealtimeVisualCommand(testText, preferences);
+    if (visual) {
+      setTestResult(t("settings.voiceCommandsTestMatched", { action: t("settings.voiceAction.look_here") }));
+      recordDiagnosticEvent("runtime", "voice-command-safe-test", { matched: true, kind: visual.kind });
+      return;
+    }
+    setTestResult(t("settings.voiceCommandsTestNoMatch"));
   };
 
   return <Section title={t("settings.voiceCommands")}>
@@ -838,7 +910,6 @@ function Summary({ label, value, ok, neutral }: { label: string; value: string; 
 function Choice({ selected, label, detail, tone, onPress }: { selected: boolean; label: string; detail?: string; tone?: "recommended" | "quality" | "previous"; onPress: () => void }) { return <Pressable onPress={onPress} style={[styles.choice, tone === "recommended" && styles.choiceRecommended, tone === "quality" && styles.choiceQuality, tone === "previous" && styles.choicePrevious, selected && styles.choiceSelected]}><View style={styles.choiceDot}>{selected ? <View style={styles.choiceDotInner} /> : null}</View><View style={styles.choiceText}><Text style={styles.value}>{label}</Text>{detail ? <Text style={styles.help}>{detail}</Text> : null}</View></Pressable>; }
 function VoiceChoice({ selected, label, detail, onSelect, onPreview, previewing, previewDisabled }: { selected: boolean; label: string; detail?: string; onSelect: () => void; onPreview: () => void; previewing: boolean; previewDisabled: boolean }) { const { t } = useUiText(); return <View style={[styles.voiceChoice, selected && styles.choiceSelected]}><Pressable onPress={onSelect} style={styles.voiceSelect}><View style={styles.choiceDot}>{selected ? <View style={styles.choiceDotInner} /> : null}</View><View style={styles.choiceText}><Text style={styles.value}>{label}</Text>{detail ? <Text style={styles.help}>{detail}</Text> : null}</View></Pressable><Pressable onPress={onPreview} disabled={previewDisabled} style={[styles.previewButton, previewDisabled && styles.disabled]}><Text style={styles.previewText}>{previewing ? "…" : `▶ ${t("common.preview")}`}</Text></Pressable></View>; }
 function SmallChoice({ selected, label, onPress }: { selected: boolean; label: string; onPress: () => void }) { return <Pressable onPress={onPress} style={[styles.smallChoice, selected && styles.smallChoiceSelected]}><Text style={styles.value}>{selected ? `✓ ${label}` : label}</Text></Pressable>; }
-function SwitchRow({ label, value, onPress }: { label: string; value: boolean; onPress: () => void }) { const { t } = useUiText(); return <Pressable onPress={onPress} style={styles.switchRow}><Text style={styles.value}>{label}</Text><Text style={[styles.pill, value && styles.pillOn]}>{value ? t("common.on") : t("common.off")}</Text></Pressable>; }
 function ButtonRow({ children }: { children: ReactNode }) { return <View style={styles.buttonRow}>{children}</View>; }
 function Action({ label, onPress, disabled, secondary }: { label: string; onPress: () => void; disabled?: boolean; secondary?: boolean }) { return <Pressable onPress={onPress} disabled={disabled} style={[styles.action, secondary && styles.actionSecondary, disabled && styles.disabled]}><Text style={secondary ? styles.actionSecondaryText : styles.actionText}>{label}</Text></Pressable>; }
 function ModelLine({ label, status }: { label: string; status: SherpaModelCheck | null | undefined }) { const { t } = useUiText(); return <View style={styles.modelLine}><Text style={styles.value}>{label}</Text><Text style={status?.ready ? styles.ok : styles.muted}>{status?.ready ? t("common.ready") : status ? t("common.notReady") : t("common.notChecked")}</Text></View>; }

@@ -40,6 +40,11 @@ export function hasExplicitRobotAddress(text: string, config?: ExplicitRobotComm
   return splitAddressedCommand(text, config) !== null;
 }
 
+/** Return the normalized command remainder only when the utterance starts with an accepted robot address. */
+export function getExplicitRobotAddressedCommand(text: string, config?: ExplicitRobotCommandConfig): string | null {
+  return splitAddressedCommand(text, config)?.command ?? null;
+}
+
 const MOVE_VERB_RE = /(?:^|\s)(?:едь|езжай|поедь|проедь|двигайся|двинься|повернись|поверни|їдь|поїдь|рухайся|повернись|поверни|go|drive|move|turn)(?=$|[\s.,!?])/iu;
 
 function isBareDirectionCommand(command: string, variants: string): boolean {
@@ -58,27 +63,29 @@ function phraseMatches(normalizedCommand: string, phrase: CustomVoiceCommandPhra
   return normalizedCommand === normalizeMatchText(phrase.text);
 }
 
-function customActionFor(command: string, config?: ExplicitRobotCommandConfig): CustomVoiceCommandAction | null {
+type PhysicalCustomVoiceCommandAction = Exclude<CustomVoiceCommandAction, "emergency_stop" | "look_here">;
+
+function customActionFor(command: string, config?: ExplicitRobotCommandConfig): PhysicalCustomVoiceCommandAction | null {
   const listeningLanguage = config?.listeningLanguage ?? "ru";
   const entries = Object.entries(config?.customVoiceCommands ?? {}) as Array<[CustomVoiceCommandAction, CustomVoiceCommandPhrase[]]>;
 
   // Prefer the phrase language matching the active Listening language. This is
   // the normal path and keeps multilingual aliases predictable.
   for (const [action, phrases] of entries) {
-    if (action === "emergency_stop") continue;
-    if (phrases.some((phrase) => phrase.language === listeningLanguage && phraseMatches(command, phrase))) return action;
+    if (action === "emergency_stop" || action === "look_here") continue;
+    if (phrases.some((phrase) => phrase.language === listeningLanguage && phraseMatches(command, phrase))) return action as PhysicalCustomVoiceCommandAction;
   }
 
   // If the listening language changed after the user created a phrase, an exact
   // addressed custom phrase should still work when it maps unambiguously to one
   // action. Never guess when the same text is configured for different actions.
   const matchingActions = entries
-    .filter(([action, phrases]) => action !== "emergency_stop" && phrases.some((phrase) => phraseMatches(command, phrase)))
-    .map(([action]) => action);
+    .filter(([action, phrases]) => action !== "emergency_stop" && action !== "look_here" && phrases.some((phrase) => phraseMatches(command, phrase)))
+    .map(([action]) => action as PhysicalCustomVoiceCommandAction);
   return new Set(matchingActions).size === 1 ? matchingActions[0] ?? null : null;
 }
 
-function commandFromCustomAction(action: CustomVoiceCommandAction, command: string): ExplicitRobotCommand | null {
+function commandFromCustomAction(action: PhysicalCustomVoiceCommandAction, command: string): ExplicitRobotCommand | null {
   switch (action) {
     case "forward": return { kind: "move", direction: "forward" };
     case "backward": return { kind: "move", direction: "backward" };

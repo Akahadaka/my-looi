@@ -9,6 +9,7 @@ import VoskCommandRecognizer, {
   type VoskRecognizerStateEvent,
 } from "../../modules/vosk-command-recognizer";
 import { recordDiagnosticEvent } from "../diagnostics/diagnostic-log";
+import { recordPerformanceSnapshot } from "../diagnostics/performance-monitor";
 import type { ListeningLanguage } from "../language/listening-language";
 import { useUserStore } from "../store/user";
 import { parseDrivingCommandTranscript, type DrivingCommand } from "./driving-command";
@@ -87,6 +88,7 @@ class VoskDrivingCommandRecognizer {
 
     const bundle = this.getBundle(language);
     const startedAt = Date.now();
+    void recordPerformanceSnapshot(`before-vosk-${language}`);
     this.preparingLanguage = language;
     const promise = VoskCommandRecognizer.prepare(
       language,
@@ -109,6 +111,7 @@ class VoskDrivingCommandRecognizer {
           grammarPhrases: bundle.phrases.length,
           durationMs: Date.now() - startedAt,
         });
+        void recordPerformanceSnapshot(`after-vosk-${language}`);
         return true;
       })
       .catch((error) => {
@@ -275,6 +278,9 @@ class VoskDrivingCommandRecognizer {
         language: event.language,
         assetDir: event.assetDir,
         loadMs: event.loadMs,
+        assetCopyMs: event.assetCopyMs,
+        modelLoadMs: event.modelLoadMs,
+        recognizerCreateMs: event.recognizerCreateMs,
         cached: event.cached,
         sessionId: event.sessionId,
         resetGeneration: event.resetGeneration,

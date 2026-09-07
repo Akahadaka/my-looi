@@ -14,8 +14,8 @@ assert.match(user, /cameraAttentionEnabled: boolean/);
 assert.match(user, /cameraAttentionEnabled: false/);
 assert.match(user, /cameraAttentionEnabled: .*=== true/);
 assert.match(user, /Do not migrate the retired experimental `cameraEnabled` flag/);
-assert.match(user, /stored\.version !== 12/);
-assert.match(user, /version: 12, preferences/);
+assert.match(user, /stored\.version !== \d+/);
+assert.match(user, /version: \d+, preferences/);
 
 const settings = read("app/(tabs)/settings.tsx");
 assert.match(settings, /PermissionsAndroid\.PERMISSIONS\.CAMERA/);

@@ -53,6 +53,7 @@ export class WakewordService {
   private nativeOnlyMode = false;
   private speakingBargeInMode = false;
   private drivingCommandExecution: Promise<void> | null = null;
+  private voskPrewarmTimer: ReturnType<typeof setTimeout> | null = null;
 
   async start(): Promise<void> {
     if (!this.listening) {
@@ -63,9 +64,11 @@ export class WakewordService {
       recordDiagnosticEvent("runtime", "wakeword-started");
     }
 
-    // v1.1.35: preload the selected offline command model while the user is
-    // conversing so the first physical command does not pay model-load latency.
-    void voskDrivingCommandRecognizer.ensureReadyForCurrentLanguage();
+    // v2.1.148: Vosk model creation can take tens of seconds on the child phone
+    // and competed with Realtime/microphone bootstrap. Defer this optional
+    // physical-command accelerator until the main voice path has had time to
+    // become usable. Explicit driving-control entry still prepares immediately.
+    this.scheduleDeferredVoskPrewarm();
 
     // The multilingual Whisper fallback is a complete wake path. Native KWS
     // is an acceleration path and can be retried by every explicit runtime
@@ -81,6 +84,7 @@ export class WakewordService {
     this.nativeOnlyMode = false;
     this.speakingBargeInMode = false;
     this.drivingCommandExecution = null;
+    this.cancelDeferredVoskPrewarm();
     drivingCommandFallback.reset();
     voskDrivingCommandRecognizer.reset("wakeword-stop");
     exitDrivingControlSession("wakeword-stop");
@@ -89,6 +93,23 @@ export class WakewordService {
     wakePhraseFallback.setSpeakingMode(false);
     wakePhraseFallback.stop();
     recordDiagnosticEvent("runtime", "wakeword-stopped");
+  }
+
+  private scheduleDeferredVoskPrewarm(): void {
+    this.cancelDeferredVoskPrewarm();
+    const delayMs = 8_000;
+    recordDiagnosticEvent("runtime", "vosk-driving-prewarm-scheduled", { delayMs });
+    this.voskPrewarmTimer = setTimeout(() => {
+      this.voskPrewarmTimer = null;
+      recordDiagnosticEvent("runtime", "vosk-driving-prewarm-deferred-start");
+      void voskDrivingCommandRecognizer.ensureReadyForCurrentLanguage();
+    }, delayMs);
+  }
+
+  private cancelDeferredVoskPrewarm(): void {
+    if (!this.voskPrewarmTimer) return;
+    clearTimeout(this.voskPrewarmTimer);
+    this.voskPrewarmTimer = null;
   }
 
   async acceptSamples(samples: number[], sampleRate = 16000): Promise<void> {

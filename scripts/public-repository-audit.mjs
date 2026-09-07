@@ -31,6 +31,10 @@ for (const name of readdirSync(root)) {
 
 const skipDirs = new Set(["node_modules", ".git", ".expo", "android", "ios", "output", ".build-assets"]);
 const textExt = /\.(?:md|txt|json|js|mjs|cjs|ts|tsx|kt|java|sh|yml|yaml|toml|properties|gradle)$/i;
+const allowedAcknowledgementTermPatterns = [
+  new RegExp(["sooper", "chargeforbots"].join(""), "i"),
+  new RegExp(["splatty", "doesstuff"].join(""), "i"),
+];
 const forbiddenTermPatterns = [
   new RegExp(`\\b${["N", "AS"].join("")}\\b`, "i"),
   new RegExp(["Syn", "ology"].join(""), "i"),
@@ -51,6 +55,7 @@ const macLike = /\b(?:[0-9A-F]{2}:){5}[0-9A-F]{2}\b/gi;
 const suspiciousVersionMarker = ["2", "9", "0"].join(".");
 const publicEnglishDocs = new Set([
   "README.md",
+  "ACKNOWLEDGEMENTS.md",
   "FEATURES.md",
   "BUILDING.md",
   "PRIVACY.md",
@@ -84,6 +89,9 @@ function walk(dir) {
     const rel = relative(root, path);
     const content = readFileSync(path, "utf8");
     for (const pattern of forbiddenTermPatterns) {
+      const allowedPublicCredit = (rel === "ACKNOWLEDGEMENTS.md" || rel === "README.md") &&
+        allowedAcknowledgementTermPatterns.some((allowed) => allowed.source === pattern.source);
+      if (allowedPublicCredit) continue;
       assert.doesNotMatch(content, pattern, `${rel} contains retired/private provenance term`);
     }
     if (content.includes(suspiciousVersionMarker)) {

@@ -24,6 +24,7 @@ import { useUserStore } from "@/src/store/user";
 import { useConversationStore } from "@/src/store/conversation";
 import { useUiText } from "@/src/i18n/use-ui-text";
 import { recordDiagnosticEvent } from "@/src/diagnostics/diagnostic-log";
+import { selectPhotosIntoCurrentDiscussion } from "@/src/vision/photo-picker-context";
 import { triggerCharacterReaction } from "@/src/character/character-reaction";
 import { classifyFaceTapImmediateRoute } from "@/src/character/face-tap-routing";
 import { isDrivingControlSessionActive } from "@/src/voice/driving-control-session";
@@ -31,7 +32,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { SymbolView } from "expo-symbols";
 import regularSymbolWeight from "expo-symbols/androidWeights/regular";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 
@@ -46,6 +47,7 @@ export default function IndexScreen() {
   const [languageMenu, setLanguageMenu] = useState<"listening" | "response" | null>(null);
   const [readiness, setReadiness] = useState<SetupReadiness | null>(null);
   const [robotRuntimeState, setRobotRuntimeState] = useState(() => getLooiRobotRuntimeState());
+  const [photoPickerBusy, setPhotoPickerBusy] = useState(false);
   const sleepTapAtRef = useRef(0);
   const idleTapCountRef = useRef(0);
   const idleTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -146,6 +148,24 @@ export default function IndexScreen() {
       setRobotRuntimeState(getLooiRobotRuntimeState());
     }
   }, [router]);
+
+  const choosePhotosForDiscussion = useCallback(async () => {
+    if (photoPickerBusy || useUserStore.getState().robotSleeping) return;
+    setPhotoPickerBusy(true);
+    try {
+      const result = await selectPhotosIntoCurrentDiscussion();
+      recordDiagnosticEvent("vision", "photo-picker-ui-finished", {
+        selected: result.selected,
+        cancelled: result.cancelled,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      recordDiagnosticEvent("vision", "photo-picker-ui-failed", { error: message });
+      Alert.alert(t("home.photoPickerErrorTitle"), t("home.photoPickerErrorBody"));
+    } finally {
+      setPhotoPickerBusy(false);
+    }
+  }, [photoPickerBusy, t]);
 
   const runIdlePhysicalReaction = useCallback((reaction: "annoyed" | "angry") => {
     const current = getLooiRobotRuntimeState();
@@ -378,6 +398,17 @@ export default function IndexScreen() {
             <Text style={styles.repairText}>{t("home.repairModels")}</Text>
           </Pressable>
         ) : null}
+        {!robotSleeping ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t("home.choosePhotosA11y")}
+            disabled={photoPickerBusy}
+            onPress={() => void choosePhotosForDiscussion()}
+            style={[styles.photoPickerButton, photoPickerBusy && styles.photoPickerButtonBusy]}
+          >
+            <Text style={styles.photoPickerIcon}>{photoPickerBusy ? "…" : "🖼️"}</Text>
+          </Pressable>
+        ) : null}
         <RobotFace
           mode="fullscreen"
           labelVisible={false}
@@ -418,6 +449,28 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
+  },
+  photoPickerButton: {
+    position: "absolute",
+    left: 18,
+    bottom: 18,
+    zIndex: 8,
+    width: 46,
+    height: 46,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: looiTheme.line,
+    backgroundColor: "rgba(3, 13, 24, 0.84)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  photoPickerButtonBusy: {
+    opacity: 0.58,
+  },
+  photoPickerIcon: {
+    fontSize: 21,
+    color: looiTheme.cyan,
+    fontWeight: "800",
   },
   robotReconnectButton: {
     position: "absolute",

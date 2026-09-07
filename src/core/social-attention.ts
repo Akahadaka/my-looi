@@ -96,6 +96,7 @@ let searchAttempted = false;
 let searchAttemptedAt = 0;
 let searchRearmUsed = false;
 let faceSeenSinceSearch = false;
+let externalMotionHoldUntil = 0;
 
 function clearTimer(timer: ReturnType<typeof setTimeout> | null): void {
   if (timer) clearTimeout(timer);
@@ -404,6 +405,7 @@ function handleFaceFrame(event: LocalFaceFrameEvent): void {
 
 function motionCorrectionAllowed(): boolean {
   if (!attentionActive || !motionArmed || !canUseAttention()) return false;
+  if (Date.now() < externalMotionHoldUntil) return false;
   if (Date.now() < bodySettleUntil) return false;
   if (bodyMotionInFlight) return false;
   if (useConversationStore.getState().isUserSpeaking) return false;
@@ -592,6 +594,13 @@ function searchStillNeeded(generation: number): boolean {
     motionArmed &&
     canUseAttention() &&
     (!lastFace || Date.now() - lastFaceAt > FACE_STALE_MS);
+}
+
+/** Temporarily freeze new social head/body corrections so an explicit camera snapshot is not blurred by robot motion. */
+export function holdSocialAttentionMotionFor(durationMs: number, reason: string): void {
+  const safeDurationMs = Math.max(0, Math.min(10_000, Math.round(durationMs)));
+  externalMotionHoldUntil = Math.max(externalMotionHoldUntil, Date.now() + safeDurationMs);
+  recordDiagnosticEvent("character", "social-attention-motion-held", { reason, durationMs: safeDurationMs });
 }
 
 export function startSocialAttentionController(source = "runtime"): void {
