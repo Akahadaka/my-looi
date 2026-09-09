@@ -11,6 +11,7 @@ const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
 assert.ok(channel.includes('conversation: "none"'), "choreography response must be out of band");
 assert.ok(channel.includes('output_modalities: ["text"]'), "choreography response must be text only");
 assert.ok(channel.includes('metadata: { topic: CHOREOGRAPHY_TOPIC, turn }'), "choreography response must carry routing metadata");
+assert.ok(/input:\s*\[\s*\{\s*type: "message",\s*role: "user"/.test(channel), "choreography request anchors an explicit text turn to avoid empty replies");
 
 // Every event that belongs to a choreography response must be routed away
 // before the audio handlers reset transcript/playback state or finalize a turn.

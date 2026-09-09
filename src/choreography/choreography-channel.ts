@@ -70,6 +70,16 @@ export function buildChoreographyResponseCreate(turn: string): Record<string, un
       output_modalities: ["text"],
       max_output_tokens: CHOREOGRAPHY_MAX_OUTPUT_TOKENS,
       instructions: buildChoreographyInstructions(),
+      // Appended after the default conversation context. Gives the model an
+      // explicit text turn to answer; without it the mini model occasionally
+      // returns an empty message (1 of 5 turns in each live spike run).
+      input: [
+        {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: "Choreography JSON for your next spoken reply:" }],
+        },
+      ],
     },
   };
 }
