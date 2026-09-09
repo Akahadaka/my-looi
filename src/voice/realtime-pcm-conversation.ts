@@ -802,12 +802,17 @@ export class RealtimePcmConversationService {
       recordDiagnosticEvent("realtime", "pcm-choreography-response-done", {
         turn,
         status: String(event.response?.status ?? "unknown"),
+        statusDetails: event.response?.status_details ? JSON.stringify(event.response.status_details).slice(0, 200) : null,
+        outputItemTypes: Array.isArray(event.response?.output)
+          ? event.response.output.map((item: any) => String(item?.type ?? "unknown")).join(",")
+          : null,
         msSinceRequest: requestedAt ? doneAt - requestedAt : null,
         msAfterFirstAudio: this.firstAudioDeltaAt ? doneAt - this.firstAudioDeltaAt : null,
         audioStarted: this.firstAudioDeltaAt !== null,
         textLength: text.length,
         text: text.slice(0, 400),
         valid: parsed.ok,
+        repaired: parsed.ok ? parsed.repaired : null,
         error: parsed.ok ? null : parsed.error,
         mood: parsed.ok ? parsed.plan.mood : null,
         energy: parsed.ok ? parsed.plan.energy : null,

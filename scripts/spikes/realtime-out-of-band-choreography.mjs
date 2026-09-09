@@ -55,7 +55,7 @@ function startScenario() {
   current = {
     text, turn, sentAt: 0, errors: [],
     audio: { created: null, firstDelta: null, done: null, transcript: "" },
-    oob: { created: null, done: null, text: "", status: null },
+    oob: { created: null, done: null, text: "", status: null, statusDetails: null, outputTypes: [] },
   };
   send({ type: "conversation.item.create", item: { type: "message", role: "user", content: [{ type: "input_text", text }] } });
   current.sentAt = now();
@@ -70,11 +70,11 @@ function maybeCompleteScenario() {
   const t = (value) => (value === null ? "   n/a" : `${String(value - c.sentAt).padStart(5)}ms`);
   const parsed = parseChoreographyPlan(c.oob.text);
   console.log(`  audio: created ${t(c.audio.created)}  first delta ${t(c.audio.firstDelta)}  done ${t(c.audio.done)}`);
-  console.log(`  oob:   created ${t(c.oob.created)}  done ${t(c.oob.done)}  status=${c.oob.status}`);
+  console.log(`  oob:   created ${t(c.oob.created)}  done ${t(c.oob.done)}  status=${c.oob.status}${c.oob.statusDetails ? ` (${c.oob.statusDetails})` : ""}  output=[${c.oob.outputTypes.join(",")}]`);
   console.log(`  oob done ${c.audio.firstDelta && c.oob.done ? c.oob.done - c.audio.firstDelta : "n/a"}ms after first audio delta`);
   console.log(`  reply: ${c.audio.transcript.trim() || "(no transcript)"}`);
   console.log(`  json:  ${c.oob.text.trim().replace(/\s+/g, " ")}`);
-  console.log(`  parse: ${parsed.ok ? `${parsed.plan.mood} energy=${parsed.plan.energy} beats=${parsed.plan.beats.map((b) => `${b.at}:${b.do}${b.n > 1 ? `x${b.n}` : ""}`).join(" ")}${parsed.droppedAtoms.length ? ` dropped=${parsed.droppedAtoms.join(",")}` : ""}` : `INVALID ${parsed.error}`}`);
+  console.log(`  parse: ${parsed.ok ? `${parsed.repaired ? "REPAIRED " : ""}${parsed.plan.mood} energy=${parsed.plan.energy} beats=${parsed.plan.beats.map((b) => `${b.at}:${b.do}${b.n > 1 ? `x${b.n}` : ""}`).join(" ")}${parsed.droppedAtoms.length ? ` dropped=${parsed.droppedAtoms.join(",")}` : ""}` : `INVALID ${parsed.error}`}`);
   if (c.errors.length) console.log(`  errors: ${c.errors.join(" | ")}`);
   results.push({ ...c, parsed });
   current = null;
@@ -83,11 +83,14 @@ function maybeCompleteScenario() {
 
 function finish() {
   const valid = results.filter((r) => r.parsed.ok).length;
+  const repaired = results.filter((r) => r.parsed.ok && r.parsed.repaired).length;
   const concurrent = results.filter((r) => r.oob.created && r.audio.created).length;
   const beforeAudio = results.filter((r) => r.oob.done && r.audio.firstDelta && r.oob.done <= r.audio.firstDelta).length;
   console.log("\n=== summary ===");
   console.log(`model: ${model}`);
-  console.log(`scenarios: ${results.length}, both responses created: ${concurrent}, valid JSON: ${valid}, JSON before first audio: ${beforeAudio}`);
+  console.log(`scenarios: ${results.length}, both responses created: ${concurrent}, valid JSON: ${valid} (${repaired} repaired), JSON before first audio: ${beforeAudio}`);
+  const lags = results.filter((r) => r.oob.done && r.audio.firstDelta).map((r) => r.oob.done - r.audio.firstDelta);
+  if (lags.length) console.log(`oob done after first audio: min ${Math.min(...lags)}ms, max ${Math.max(...lags)}ms, mean ${Math.round(lags.reduce((a, b) => a + b, 0) / lags.length)}ms`);
   console.log(`errors: ${results.reduce((n, r) => n + r.errors.length, 0)}`);
   ws.close();
 }
@@ -155,6 +158,8 @@ ws.onmessage = (message) => {
     if (isChoreography || forOob) {
       current.oob.done = now();
       current.oob.status = event.response?.status ?? "unknown";
+      current.oob.statusDetails = event.response?.status_details ? JSON.stringify(event.response.status_details) : null;
+      current.oob.outputTypes = (event.response?.output ?? []).map((o) => `${o.type}${o.content ? ":" + o.content.map((c) => c.type).join("+") : ""}`);
       if (!current.oob.text) {
         const item = (event.response?.output ?? []).find((o) => o.type === "message");
         const part = item?.content?.find((c) => c.type === "output_text" || c.type === "text");
