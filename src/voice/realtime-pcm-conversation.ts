@@ -39,8 +39,16 @@ import {
   parseRealtimePhysicalCommand,
   type RealtimePhysicalCommand,
 } from "./realtime-physical-command";
+import {
+  CHOREOGRAPHY_TOPIC,
+  buildChoreographyResponseCreate,
+  parseChoreographyPlan,
+  readChoreographyResponseTopic,
+} from "../choreography/choreography-channel";
 
 const WS_OPEN_TIMEOUT_MS = 9_000;
+// Phase 1 spike: out-of-band choreography request per user turn (diagnostics only).
+const CHOREOGRAPHY_SPIKE_ENABLED = true;
 const CAPTURE_RELEASE_SETTLE_MS = 220;
 const COMMUNICATION_ROUTE_SETTLE_MS = 200;
 const STARTUP_PREROLL_RECENT_MS = 900;
@@ -102,6 +110,11 @@ export class RealtimePcmConversationService {
   private captureLevelWindowFirstSequence: number | null = null;
   private sessionMemoryContext: string | undefined;
   private sessionModel = REALTIME_MODEL;
+  private choreographyTurn = 0;
+  private choreographyResponseIds = new Map<string, string>();
+  private choreographyTexts = new Map<string, string>();
+  private choreographyRequestedAt = new Map<string, number>();
+  private firstAudioDeltaAt: number | null = null;
 
   get isActive(): boolean {
     return this.active;
@@ -126,6 +139,11 @@ export class RealtimePcmConversationService {
     this.handledToolCalls.clear();
     this.toolCallsInFlight = 0;
     this.localPhysicalCommandInFlight = false;
+    this.choreographyTurn = 0;
+    this.choreographyResponseIds.clear();
+    this.choreographyTexts.clear();
+    this.choreographyRequestedAt.clear();
+    this.firstAudioDeltaAt = null;
     this.lastCaptureRmsLogAt = 0;
     this.captureLevelWindowFrames = 0;
     this.captureLevelWindowEnergy = 0;
@@ -496,6 +514,7 @@ export class RealtimePcmConversationService {
 
   private async handleEvent(event: RealtimeEvent): Promise<void> {
     const type = String(event.type ?? "");
+    if (this.routeChoreographyEvent(type, event)) return;
     if (type === "session.created") {
       recordDiagnosticEvent("realtime", "pcm-openai-session-created", {
         model: event.session?.model ?? this.sessionModel,
@@ -648,6 +667,8 @@ export class RealtimePcmConversationService {
       store.setProcessing(true);
       useUserStore.getState().setVoiceState("processing");
       recordDiagnosticEvent("realtime", "pcm-speech-stopped");
+      this.firstAudioDeltaAt = null;
+      this.requestChoreography("speech-stopped");
       return;
     }
     if (type === "conversation.item.input_audio_transcription.completed") {
@@ -725,8 +746,86 @@ export class RealtimePcmConversationService {
     });
   }
 
+  /**
+   * Choreography spike: ask the model, out of band, how LOOI should move for the
+   * reply it is about to speak. Runs in parallel with the server-VAD audio
+   * response. Phase 1 only measures timing and JSON quality; nothing moves.
+   */
+  private requestChoreography(source: string): void {
+    if (!CHOREOGRAPHY_SPIKE_ENABLED || !this.active || !this.webSocket) return;
+    this.choreographyTurn += 1;
+    const turn = String(this.choreographyTurn);
+    this.choreographyRequestedAt.set(turn, Date.now());
+    this.send(buildChoreographyResponseCreate(turn));
+    recordDiagnosticEvent("realtime", "pcm-choreography-requested", { turn, source });
+  }
+
+  /** Route every event that belongs to a choreography response away from the audio handlers. */
+  private routeChoreographyEvent(type: string, event: RealtimeEvent): boolean {
+    if (!CHOREOGRAPHY_SPIKE_ENABLED) return false;
+    if (type === "response.created" && readChoreographyResponseTopic(event) === CHOREOGRAPHY_TOPIC) {
+      const responseId = String(event.response?.id ?? "");
+      const turn = String(event.response?.metadata?.turn ?? "");
+      if (responseId) this.choreographyResponseIds.set(responseId, turn);
+      const requestedAt = this.choreographyRequestedAt.get(turn);
+      recordDiagnosticEvent("realtime", "pcm-choreography-response-created", {
+        turn,
+        responseIdKnown: Boolean(responseId),
+        msSinceRequest: requestedAt ? Date.now() - requestedAt : null,
+      });
+      return true;
+    }
+    const responseId = String(event.response_id ?? event.response?.id ?? "");
+    if (!responseId || !this.choreographyResponseIds.has(responseId)) {
+      // A done event whose created event was missed still identifies itself by metadata.
+      if (type === "response.done" && readChoreographyResponseTopic(event) === CHOREOGRAPHY_TOPIC) {
+        recordDiagnosticEvent("realtime", "pcm-choreography-response-unrouted", { responseIdKnown: Boolean(responseId) });
+        return true;
+      }
+      return false;
+    }
+    const turn = this.choreographyResponseIds.get(responseId) ?? "";
+    if (type === "response.output_text.delta") {
+      this.choreographyTexts.set(responseId, (this.choreographyTexts.get(responseId) ?? "") + String(event.delta ?? ""));
+      return true;
+    }
+    if (type === "response.output_text.done") {
+      const text = String(event.text ?? "");
+      if (text) this.choreographyTexts.set(responseId, text);
+      return true;
+    }
+    if (type === "response.done") {
+      const doneAt = Date.now();
+      const requestedAt = this.choreographyRequestedAt.get(turn);
+      const text = this.choreographyTexts.get(responseId) ?? "";
+      const parsed = parseChoreographyPlan(text);
+      recordDiagnosticEvent("realtime", "pcm-choreography-response-done", {
+        turn,
+        status: String(event.response?.status ?? "unknown"),
+        msSinceRequest: requestedAt ? doneAt - requestedAt : null,
+        msAfterFirstAudio: this.firstAudioDeltaAt ? doneAt - this.firstAudioDeltaAt : null,
+        audioStarted: this.firstAudioDeltaAt !== null,
+        textLength: text.length,
+        text: text.slice(0, 400),
+        valid: parsed.ok,
+        error: parsed.ok ? null : parsed.error,
+        mood: parsed.ok ? parsed.plan.mood : null,
+        energy: parsed.ok ? parsed.plan.energy : null,
+        beats: parsed.ok ? parsed.plan.beats.map((beat) => `${beat.at}:${beat.do}${beat.n > 1 ? `x${beat.n}` : ""}`).join(" ") : null,
+        droppedAtoms: parsed.ok ? parsed.droppedAtoms.join(",") : null,
+      });
+      this.choreographyResponseIds.delete(responseId);
+      this.choreographyTexts.delete(responseId);
+      this.choreographyRequestedAt.delete(turn);
+      return true;
+    }
+    // output_item.added/done, content_part.added/done and friends for this response.
+    return true;
+  }
+
   private markPlaybackStarted(): void {
     this.playbackActive = true;
+    this.firstAudioDeltaAt = Date.now();
     const store = useConversationStore.getState();
     store.setUserSpeaking(false);
     store.setListening(false);
