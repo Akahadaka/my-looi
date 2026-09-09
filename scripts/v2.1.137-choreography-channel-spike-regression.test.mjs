@@ -11,7 +11,10 @@ const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
 assert.ok(channel.includes('conversation: "none"'), "choreography response must be out of band");
 assert.ok(channel.includes('output_modalities: ["text"]'), "choreography response must be text only");
 assert.ok(channel.includes('metadata: { topic: CHOREOGRAPHY_TOPIC, turn }'), "choreography response must carry routing metadata");
-assert.ok(/input:\s*\[\s*\{\s*type: "message",\s*role: "user"/.test(channel), "choreography request anchors an explicit text turn to avoid empty replies");
+// `input` on response.create replaces the default conversation context; the
+// choreographer must see the whole conversation to judge mood.
+const requestBuilder = channel.slice(channel.indexOf("export function buildChoreographyResponseCreate"), channel.indexOf("/** Topic from"));
+assert.equal(/\binput:/.test(requestBuilder), false, "choreography request must not override the conversation context with input");
 
 // Every event that belongs to a choreography response must be routed away
 // before the audio handlers reset transcript/playback state or finalize a turn.

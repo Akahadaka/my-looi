@@ -70,16 +70,11 @@ export function buildChoreographyResponseCreate(turn: string): Record<string, un
       output_modalities: ["text"],
       max_output_tokens: CHOREOGRAPHY_MAX_OUTPUT_TOKENS,
       instructions: buildChoreographyInstructions(),
-      // Appended after the default conversation context. Gives the model an
-      // explicit text turn to answer; without it the mini model occasionally
-      // returns an empty message (1 of 5 turns in each live spike run).
-      input: [
-        {
-          type: "message",
-          role: "user",
-          content: [{ type: "input_text", text: "Choreography JSON for your next spoken reply:" }],
-        },
-      ],
+      // No `input`: that field builds a custom context that REPLACES the default
+      // conversation (OpenAI Realtime guide, "custom context"). A one-line anchor
+      // tried on 2026-09-08 made the model choreograph blind: "my dog died"
+      // came back playful. The occasional empty message (~1 in 10 on the mini
+      // model) is covered by the local fallback generator instead.
     },
   };
 }
