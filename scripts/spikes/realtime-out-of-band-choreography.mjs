@@ -55,7 +55,7 @@ function startScenario() {
   current = {
     text, turn, sentAt: 0, errors: [],
     audio: { created: null, firstDelta: null, done: null, transcript: "" },
-    oob: { created: null, done: null, text: "", status: null, statusDetails: null, outputTypes: [] },
+    oob: { created: null, done: null, text: "", status: null, statusDetails: null, outputTypes: [], retried: false, retryDone: null },
   };
   send({ type: "conversation.item.create", item: { type: "message", role: "user", content: [{ type: "input_text", text }] } });
   current.sentAt = now();
@@ -70,7 +70,7 @@ function maybeCompleteScenario() {
   const t = (value) => (value === null ? "   n/a" : `${String(value - c.sentAt).padStart(5)}ms`);
   const parsed = parseChoreographyPlan(c.oob.text);
   console.log(`  audio: created ${t(c.audio.created)}  first delta ${t(c.audio.firstDelta)}  done ${t(c.audio.done)}`);
-  console.log(`  oob:   created ${t(c.oob.created)}  done ${t(c.oob.done)}  status=${c.oob.status}${c.oob.statusDetails ? ` (${c.oob.statusDetails})` : ""}  output=[${c.oob.outputTypes.join(",")}]`);
+  console.log(`  oob:   created ${t(c.oob.created)}  done ${t(c.oob.done)}  status=${c.oob.status}${c.oob.statusDetails ? ` (${c.oob.statusDetails})` : ""}  output=[${c.oob.outputTypes.join(",")}]${c.oob.retried ? "  RETRIED after empty" : ""}`);
   console.log(`  oob done ${c.audio.firstDelta && c.oob.done ? c.oob.done - c.audio.firstDelta : "n/a"}ms after first audio delta`);
   console.log(`  reply: ${c.audio.transcript.trim() || "(no transcript)"}`);
   console.log(`  json:  ${c.oob.text.trim().replace(/\s+/g, " ")}`);
@@ -84,6 +84,8 @@ function maybeCompleteScenario() {
 function finish() {
   const valid = results.filter((r) => r.parsed.ok).length;
   const repaired = results.filter((r) => r.parsed.ok && r.parsed.repaired).length;
+  const retried = results.filter((r) => r.oob.retried).length;
+  const rescued = results.filter((r) => r.oob.retried && r.parsed.ok).length;
   const concurrent = results.filter((r) => r.oob.created && r.audio.created).length;
   const beforeAudio = results.filter((r) => r.oob.done && r.audio.firstDelta && r.oob.done <= r.audio.firstDelta).length;
   console.log("\n=== summary ===");
@@ -91,6 +93,7 @@ function finish() {
   console.log(`scenarios: ${results.length}, both responses created: ${concurrent}, valid JSON: ${valid} (${repaired} repaired), JSON before first audio: ${beforeAudio}`);
   const lags = results.filter((r) => r.oob.done && r.audio.firstDelta).map((r) => r.oob.done - r.audio.firstDelta);
   if (lags.length) console.log(`oob done after first audio: min ${Math.min(...lags)}ms, max ${Math.max(...lags)}ms, mean ${Math.round(lags.reduce((a, b) => a + b, 0) / lags.length)}ms`);
+  console.log(`empty first attempts: ${retried}, rescued by one retry: ${rescued}`);
   console.log(`errors: ${results.reduce((n, r) => n + r.errors.length, 0)}`);
   ws.close();
 }
@@ -136,7 +139,7 @@ ws.onmessage = (message) => {
   if (type === "response.created") {
     if (isChoreography) current.oob.created = now();
     else current.audio.created = now();
-    if (isChoreography) current.oobId = event.response?.id;
+    if (isChoreography) { current.oobId = event.response?.id; if (current.oob.retried) current.oob.created = current.oob.created ?? now(); }
     else current.audioId = event.response?.id;
     return;
   }
@@ -156,7 +159,16 @@ ws.onmessage = (message) => {
   }
   if (type === "response.done") {
     if (isChoreography || forOob) {
+      const emptyText = !current.oob.text && !(event.response?.output ?? []).some((o) => o.content?.some((c) => c.text));
+      if (emptyText && !current.oob.retried) {
+        // Measure whether a single retry rescues an empty plan and how late it lands.
+        current.oob.retried = true;
+        current.oob.outputTypes = (event.response?.output ?? []).map((o) => `${o.type}${o.content ? ":" + o.content.map((c) => c.type).join("+") : ""}`);
+        send(buildChoreographyResponseCreate(`${current.turn}-retry`));
+        return;
+      }
       current.oob.done = now();
+      if (current.oob.retried) current.oob.retryDone = current.oob.done;
       current.oob.status = event.response?.status ?? "unknown";
       current.oob.statusDetails = event.response?.status_details ? JSON.stringify(event.response.status_details) : null;
       current.oob.outputTypes = (event.response?.output ?? []).map((o) => `${o.type}${o.content ? ":" + o.content.map((c) => c.type).join("+") : ""}`);

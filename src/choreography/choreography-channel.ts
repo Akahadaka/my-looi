@@ -57,6 +57,7 @@ export function buildChoreographyInstructions(): string {
     `Head atoms: ${CHOREOGRAPHY_HEAD_ATOMS.join(", ")}. Body atoms: ${CHOREOGRAPHY_BODY_ATOMS.join(", ")} (spin is a full turn, use it rarely). Accent: blink_light.`,
     `Face atoms: ${CHOREOGRAPHY_FACE_MOODS.map((mood) => `face:${mood}`).join(", ")}.`,
     "Be expressive and varied, like someone talking with their hands.",
+    'An empty reply is never acceptable. If unsure, reply exactly {"mood":"warm","energy":0.5,"beats":[[0,"nod"],[0.7,"settle"]]}.',
   ].join(" ");
 }
 
