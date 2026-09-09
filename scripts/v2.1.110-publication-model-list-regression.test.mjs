@@ -13,14 +13,14 @@ const build = readFileSync(join(root, "scripts/build-android-apk.sh"), "utf8");
 assert.equal(pkg.name, "my-looi");
 const patchVersion = Number(pkg.version.split(".")[2]);
 assert.ok(Number.isInteger(patchVersion) && patchVersion >= 110, `expected My LOOI 2.1.110+ release, got ${pkg.version}`);
-assert.equal(app.expo.name, "My LOOI");
+assert.equal(app.expo.name, "My LOOI (Fork)");
 assert.equal(app.expo.slug, "my-looi");
 assert.equal(app.expo.version, pkg.version);
 assert.ok(app.expo.android.versionCode >= 110, "public My LOOI release must retain monotonically increasing Android versionCode");
 // v2.1.116 intentionally resets the Android identity before broad distribution so
 // future public releases no longer inherit the old Expo/Super LOOI package name.
 if (patchVersion >= 116) {
-  assert.equal(app.expo.android.package, "io.github.razor79.mylooi");
+  assert.equal(app.expo.android.package, "io.github.akahadaka.mylooi");
 } else {
   assert.equal(app.expo.android.package, "com.anonymous.superlooiapp");
 }

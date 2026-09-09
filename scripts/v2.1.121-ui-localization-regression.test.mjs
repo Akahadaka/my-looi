@@ -13,7 +13,7 @@ const [, , patchVersionText] = pkg.version.split(".");
 const patchVersion = Number.parseInt(patchVersionText, 10);
 assert.ok(Number.isInteger(patchVersion) && patchVersion >= 121);
 assert.ok(app.expo.android.versionCode >= 121);
-assert.equal(app.expo.android.package, "io.github.razor79.mylooi");
+assert.equal(app.expo.android.package, "io.github.akahadaka.mylooi");
 
 const languageSource = read("src/i18n/ui-language.ts");
 assert.match(languageSource, /type InterfaceLanguage = "uk" \| "en" \| "ru"/);

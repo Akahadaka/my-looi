@@ -45,7 +45,7 @@ corepack pnpm test
 
 For an Android release build, see [BUILDING.md](BUILDING.md). Repeated archive builds can use the reusable `scripts/build-my-looi.sh` helper; normal mode preserves safe incremental state and `--fresh` performs a clean control build. Before publishing source or APK files, follow [docs/releasing.md](docs/releasing.md).
 
-The OpenAI API key is entered inside the app and stored with Android SecureStore. Do not place API keys in `.env` or source files. The Android application ID for the standalone My LOOI app is `io.github.razor79.mylooi`.
+The OpenAI API key is entered inside the app and stored with Android SecureStore. Do not place API keys in `.env` or source files. The Android application ID for this fork of the standalone My LOOI app is `io.github.akahadaka.mylooi`, allowing installation alongside the upstream app.
 
 ## Repository structure
 

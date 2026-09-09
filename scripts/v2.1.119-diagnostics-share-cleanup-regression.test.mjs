@@ -17,11 +17,11 @@ assert.ok(Number.isInteger(patchVersion) && patchVersion >= 119, "v2.1.119 diagn
 assert.ok(app.expo.android.versionCode >= 119);
 
 // Product identity/signing continuity remains fixed after the v2.1.116 migration.
-assert.equal(app.expo.name, "My LOOI");
+assert.equal(app.expo.name, "My LOOI (Fork)");
 assert.equal(app.expo.slug, "my-looi");
 assert.equal(app.expo.scheme, "mylooi");
-assert.equal(app.expo.android.package, "io.github.razor79.mylooi");
-assert.equal(app.expo.ios.bundleIdentifier, "io.github.razor79.mylooi");
+assert.equal(app.expo.android.package, "io.github.akahadaka.mylooi");
+assert.equal(app.expo.ios.bundleIdentifier, "io.github.akahadaka.mylooi");
 
 // Direct Google Drive OAuth/Picker integration was deliberately retired. The
 // user can still choose Google Drive from Android's native Share sheet.
