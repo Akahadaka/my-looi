@@ -25,17 +25,16 @@ assert.ok(
 assert.ok(pcm.includes('this.requestChoreography("speech-stopped")'), "choreography is requested when the user turn is committed");
 assert.ok(pcm.includes('"pcm-choreography-response-done"'), "choreography timing/JSON must reach diagnostics");
 
-// Phase 1 is a measurement spike: nothing may move from the choreography path yet.
-assert.equal(channel.includes("looi-robot"), false, "channel module must stay free of robot primitives in phase 1");
-assert.equal(/choreograph[\s\S]*?(moveLooi|turnLooi|performLooi|startLooiMotion)/i.test(channel), false, "channel must not drive the robot");
+// The channel module stays pure: request/parse only. Motion lives in the player.
+assert.equal(channel.includes("looi-robot"), false, "channel module must stay free of robot primitives");
 for (const primitive of ["moveLooi", "turnLooi", "startLooiMotion", "performLooiDance", "performLooiHeadGesture"]) {
   const routing = pcm.slice(pcm.indexOf("private requestChoreography"), pcm.indexOf("private markPlaybackStarted"));
-  assert.equal(routing.includes(primitive), false, `choreography routing must not call ${primitive} in phase 1`);
+  assert.equal(routing.includes(primitive), false, `choreography routing must hand plans to the player, not call ${primitive}`);
 }
 
-// The safety stance for the default conversation is unchanged.
+// The safety stance for the default conversation is unchanged: no movement tool.
 assert.ok(config.includes("You have no physical movement tool yourself"), "default Realtime session still has no movement tool");
-assert.equal(config.includes("choreograph"), false, "default session tools are unchanged in phase 1");
+assert.equal(/name: "(choreograph|move|turn|drive)[a-z_]*"/.test(config), false, "default session tools gain no movement tool");
 
 // Parser must clamp and drop unknown atoms rather than fail.
 const { parseChoreographyPlan } = await import("../src/choreography/choreography-channel.ts");

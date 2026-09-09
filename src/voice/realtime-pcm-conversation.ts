@@ -45,10 +45,11 @@ import {
   parseChoreographyPlan,
   readChoreographyResponseTopic,
 } from "../choreography/choreography-channel";
+import { choreographyPlayer } from "../choreography/choreography-player";
 
 const WS_OPEN_TIMEOUT_MS = 9_000;
-// Phase 1 spike: out-of-band choreography request per user turn (diagnostics only).
-const CHOREOGRAPHY_SPIKE_ENABLED = true;
+// Out-of-band choreography request per user turn, executed by the choreography player.
+const CHOREOGRAPHY_CHANNEL_ENABLED = true;
 const CAPTURE_RELEASE_SETTLE_MS = 220;
 const COMMUNICATION_ROUTE_SETTLE_MS = 200;
 const STARTUP_PREROLL_RECENT_MS = 900;
@@ -323,6 +324,7 @@ export class RealtimePcmConversationService {
   }
 
   private async performStop(reason: string): Promise<void> {
+    choreographyPlayer.cancel(`session-stop:${reason}`);
     if (this.stopping) return;
     this.stopping = true;
     this.active = false;
@@ -629,6 +631,7 @@ export class RealtimePcmConversationService {
       if (this.localPhysicalCommandInFlight) return;
       this.assistantTranscript += String(event.delta ?? "");
       useConversationStore.getState().setStreamingText(this.assistantTranscript);
+      choreographyPlayer.onTranscriptDelta(this.assistantTranscript);
       return;
     }
     if (type === "response.output_audio_transcript.done") {
@@ -643,6 +646,7 @@ export class RealtimePcmConversationService {
       const duringOutput = this.playbackActive;
       if (duringOutput) {
         this.playbackInterrupted = true;
+        choreographyPlayer.cancel("barge-in");
         const playedDurationMs = this.stopAndTruncatePlayback("server-vad");
         recordDiagnosticEvent("realtime", "pcm-voice-barge-in", {
           playedDurationMs,
@@ -689,6 +693,7 @@ export class RealtimePcmConversationService {
         const physicalCommand = parseRealtimePhysicalCommand(transcript, useUserStore.getState().preferences);
         if (physicalCommand) {
           this.localPhysicalCommandInFlight = true;
+          choreographyPlayer.cancel("local-physical-command");
           if (this.playbackActive) {
             this.playbackInterrupted = true;
             this.stopAndTruncatePlayback("local-physical-command");
@@ -752,9 +757,16 @@ export class RealtimePcmConversationService {
    * response. Phase 1 only measures timing and JSON quality; nothing moves.
    */
   private requestChoreography(source: string): void {
-    if (!CHOREOGRAPHY_SPIKE_ENABLED || !this.active || !this.webSocket) return;
+    if (!CHOREOGRAPHY_CHANNEL_ENABLED || !this.active || !this.webSocket) return;
     this.choreographyTurn += 1;
     const turn = String(this.choreographyTurn);
+    // The player always gets a turn so the fallback moves even when the
+    // channel is disabled by the expressive-motion level.
+    choreographyPlayer.startTurn(turn);
+    if (!choreographyPlayer.isEnabled) {
+      recordDiagnosticEvent("realtime", "pcm-choreography-skipped", { turn, reason: "expressive-motion-off" });
+      return;
+    }
     this.choreographyRequestedAt.set(turn, Date.now());
     this.send(buildChoreographyResponseCreate(turn));
     recordDiagnosticEvent("realtime", "pcm-choreography-requested", { turn, source });
@@ -762,7 +774,7 @@ export class RealtimePcmConversationService {
 
   /** Route every event that belongs to a choreography response away from the audio handlers. */
   private routeChoreographyEvent(type: string, event: RealtimeEvent): boolean {
-    if (!CHOREOGRAPHY_SPIKE_ENABLED) return false;
+    if (!CHOREOGRAPHY_CHANNEL_ENABLED) return false;
     if (type === "response.created" && readChoreographyResponseTopic(event) === CHOREOGRAPHY_TOPIC) {
       const responseId = String(event.response?.id ?? "");
       const turn = String(event.response?.metadata?.turn ?? "");
@@ -822,6 +834,8 @@ export class RealtimePcmConversationService {
       this.choreographyResponseIds.delete(responseId);
       this.choreographyTexts.delete(responseId);
       this.choreographyRequestedAt.delete(turn);
+      if (parsed.ok) choreographyPlayer.setPlan(parsed.plan, "model", turn);
+      else choreographyPlayer.notePlanFailed(turn);
       return true;
     }
     // output_item.added/done, content_part.added/done and friends for this response.
@@ -831,6 +845,7 @@ export class RealtimePcmConversationService {
   private markPlaybackStarted(): void {
     this.playbackActive = true;
     this.firstAudioDeltaAt = Date.now();
+    choreographyPlayer.onPlaybackStarted();
     const store = useConversationStore.getState();
     store.setUserSpeaking(false);
     store.setListening(false);
@@ -846,6 +861,7 @@ export class RealtimePcmConversationService {
   private async handlePlaybackDrained(playedDurationMs: number): Promise<void> {
     if (!this.active || !this.playbackActive) return;
     this.playbackActive = false;
+    choreographyPlayer.onPlaybackFinished(playedDurationMs);
     recordDiagnosticEvent("realtime", "pcm-output-drained", {
       playedDurationMs,
       responseDone: this.responseDone,
