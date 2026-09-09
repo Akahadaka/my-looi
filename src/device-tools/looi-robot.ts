@@ -718,6 +718,27 @@ export async function performLooiSocialAttentionPivot(direction: "left" | "right
   });
 }
 
+/**
+ * Tiny net-zero-friendly pivot reserved for reply choreography. Same bounded
+ * drive primitive and cliff/near-edge interlocks as ambient motion; the
+ * choreography player is responsible for pairing pivots so heading returns.
+ */
+export async function performLooiChoreographyPivot(direction: "left" | "right", durationMs: number) {
+  const boundedDurationMs = Math.max(80, Math.min(260, Math.round(durationMs)));
+  return runBoundedMotion(direction, boundedDurationMs, "manual-bounded", {
+    choreography: true,
+    choreographyPrimitive: "pivot",
+  });
+}
+
+/**
+ * Sequence token for multi-step motion. Any STOP or sensor safety stop bumps
+ * it, so callers compare before each step and abandon the rest.
+ */
+export function getMotionSequenceToken(): number {
+  return motionSequenceAbortGeneration;
+}
+
 /** Calibrated bounded turn. First build uses time estimates that must be tuned on the real robot. */
 export async function turnLooi(direction: "left" | "right", degrees: 90 | 180 = 90) {
   const robot = await getRobot();
@@ -872,6 +893,26 @@ export async function setLooiHead(direction: string) {
   const robot = await getRobot();
   await robot.setHead(direction);
   return { ok: true, direction };
+}
+
+const HEAD_BYTE_CENTER = 0x87;
+const HEAD_BYTE_UP = 0x00;
+const HEAD_BYTE_DOWN = 0xff;
+
+/**
+ * Partial head tilt for slow, expressive motion. position is -1 (fully up) to
+ * 1 (fully down); 0 is centre. Holds for holdMs and leaves the head there, so
+ * the caller decides when to settle. Head-only: no wheel movement.
+ */
+export async function performLooiHeadLean(position: number, holdMs = 0) {
+  const robot = await getRobot();
+  const clamped = Math.max(-1, Math.min(1, Number(position) || 0));
+  const span = clamped < 0 ? HEAD_BYTE_CENTER - HEAD_BYTE_UP : HEAD_BYTE_DOWN - HEAD_BYTE_CENTER;
+  const byte = Math.round(HEAD_BYTE_CENTER + clamped * span);
+  await robot.setHead(byte);
+  if (holdMs > 0) await delay(Math.min(2_000, Math.round(holdMs)));
+  recordDiagnosticEvent("robot", "head-lean", { position: clamped, byte, holdMs });
+  return { ok: true, position: clamped, byte, wheelsUsed: false };
 }
 
 /** Head-only conversational gestures: no wheel movement. */
