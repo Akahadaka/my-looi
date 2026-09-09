@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "My LOOI",
+    "name": "My LOOI (Fork)",
     "slug": "my-looi",
     "version": "2.1.136",
     "orientation": "landscape",
@@ -9,7 +9,7 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "io.github.razor79.mylooi",
+      "bundleIdentifier": "io.github.akahadaka.mylooi",
       "buildNumber": "41"
     },
     "android": {
@@ -20,7 +20,7 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "io.github.razor79.mylooi",
+      "package": "io.github.akahadaka.mylooi",
       "versionCode": 136
     },
     "web": {
