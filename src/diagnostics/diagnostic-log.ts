@@ -82,20 +82,29 @@ function readEntries(): DiagnosticLogEntry[] {
   }
 }
 
+// Dev builds: mirror every (sanitised) diagnostic event to the JS console so it
+// shows up in `adb logcat` as ReactNativeJS without an export round-trip.
+// Build-time flag; release builds leave it unset.
+const MIRROR_TO_CONSOLE = process.env.EXPO_PUBLIC_LOOI_DIAGNOSTIC_LOGCAT === "1";
+
 export function recordDiagnosticEvent(
   category: DiagnosticCategory,
   event: string,
   details: DiagnosticDetails = {}
 ): void {
   try {
-    const entries = readEntries();
-    entries.push({
+    const entry: DiagnosticLogEntry = {
       id: nextId++,
       timestamp: new Date().toISOString(),
       category,
       event: event.slice(0, 120),
       details: sanitizeDetails(details),
-    });
+    };
+    if (MIRROR_TO_CONSOLE) {
+      console.log(`[Diag] ${category}.${entry.event}`, JSON.stringify(entry.details));
+    }
+    const entries = readEntries();
+    entries.push(entry);
     diagnosticStorage.set(STORAGE_KEY, JSON.stringify(entries.slice(-MAX_ENTRIES)));
   } catch (error) {
     // Diagnostics must never break the voice runtime they are observing.
