@@ -472,7 +472,11 @@ export function resamplePcm16(pcm, fromRate, toRate) {
 export async function ttsClip(apiKey, text, { voice = "alloy", model = "gpt-4o-mini-tts", instructions } = {}) {
   const cacheDir = join(SPIKE_TMP_DIR, "tts");
   mkdirSync(cacheDir, { recursive: true });
-  const cacheKey = createHash("sha1").update(`${model}|${voice}|${instructions ?? ""}|${text}`).digest("hex").slice(0, 16);
+  // Key on the speech endpoint too: clips synthesised by a local mock server
+  // (OPENAI_SPEECH_URL override) must never be replayed against the real API.
+  // On 2026-09-13 three 0.7-0.9 s mock clips were replayed and produced a false
+  // "never delegates" result.
+  const cacheKey = createHash("sha1").update(`${SPEECH_URL}|${model}|${voice}|${instructions ?? ""}|${text}`).digest("hex").slice(0, 16);
   const cachePath = join(cacheDir, `${cacheKey}.pcm`);
   if (existsSync(cachePath)) return { pcm: readFileSync(cachePath), cached: true, path: cachePath };
   const response = await fetch(SPEECH_URL, {

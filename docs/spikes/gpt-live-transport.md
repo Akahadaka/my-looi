@@ -263,9 +263,13 @@ WebRTC path shows the repo already tolerates three transports).
 ## Live results (2026-09-13, real API, `--tts`)
 
 Runs: `pnpm spike:gpt-live --tts` (default 700 ms gap), the same with `--gap 1500`,
-`--auth subprotocol`, and `spike:gpt-live-delegation --mode client --tts`. Responses-mode
-delegation could not run: the key lacks the `api.responses.write` scope. Logs are under
-`tmp/spikes/gpt-live/` (untracked).
+`--auth subprotocol`, and `spike:gpt-live-delegation --tts` in responses mode
+(`gpt-5.6-terra`) and client mode. Logs are under `tmp/spikes/gpt-live/` (untracked).
+
+Caution learnt the hard way: the first delegation runs replayed 0.7–0.9 s clips cached
+by the mock-server dry run, so the model heard noise, emitted no transcripts and never
+delegated. The TTS cache key now includes the speech endpoint; the numbers below are from
+real clips (2.5–4.7 s).
 
 | Measure | Result |
 | --- | --- |
@@ -280,7 +284,8 @@ delegation could not run: the key lacks the `api.responses.write` scope. Logs ar
 | Tone probe | model spoke in reply to a 440 Hz tone; no transcript |
 | Mute round trip | ack 24 ms; unmute acked |
 | Usage | per-second `session.usage.updated` every 15 s; 83 s session billed as 83 s; context usage ratio 0.02 after 83 s |
-| Client delegation | **0 of 3** turns delegated (memory question, "remember", language switch). The model answered by itself with first audio 60–95 ms after clip end. No `session.delegation.created` ever arrived |
+| Responses delegation (`gpt-5.6-terra`) | **3 of 3** turns delegated. `session.delegation.created` 600–837 ms after the clip ended; backend function call (search_memory / remember / set_language_preferences with correct arguments) 1.2–1.4 s after; first spoken result 1.3–1.6 s after the user stopped. The voice model filled the wait ("Hmm, let me check on that… it's Biscuit") and switched to Ukrainian on the language turn |
+| Client delegation | **3 of 3** turns delegated. `session.delegation.created` 545–749 ms after the clip ended, carrying only an id (the app reconstructs the request from `session.input_transcript.delta`); `session.commentary.append` acked ~460 ms later; first spoken result 0.7–0.9 s after the user stopped ("Checking my memory… your dog's name is Biscuit") |
 
 ### What this changes in the verdicts
 
@@ -295,11 +300,14 @@ delegation could not run: the key lacks the `api.responses.write` scope. Logs ar
   before the command is fully spoken, so a local command always races a spoken reply. The
   parser wins on the robot (nothing moves from speech) but the user hears the model react
   first.
-- **Memory/language tools via client delegation: blocker as tested.** With the delegation
-  policy in `session.instructions`, the model never delegated. Either the prompt is wrong
-  for this model, or client mode is meant for rarer, heavier tasks. Responses-mode delegation
-  is untested (scope). Until one of them works, memory recall, remember, and language
-  switching have no path on GPT-Live.
+- **Memory/language tools via delegation: works, in both modes.** With the documented
+  delegation-policy template in `session.instructions`, all three tool utterances delegated
+  every time. Client mode is faster to first spoken result (0.7–0.9 s vs 1.3–1.6 s) and keeps
+  the tool execution on the phone, which matches the app's local memory database; the price
+  is reconstructing the request from transcript deltas. Responses mode returns proper
+  function-call items with arguments and needs a backend model billed separately. The voice
+  model speaks a filler before the result in both modes, so the app must not treat the first
+  audio after a command as the answer.
 - **Cost: confirmed per-second billing of the whole session, including silence.**
 
 ### Found in passing (Realtime path, exists today)
