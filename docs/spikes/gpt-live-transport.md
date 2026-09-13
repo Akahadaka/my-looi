@@ -260,6 +260,54 @@ become the default. Realtime PCM remains the default until §1 and §4 are prove
 desk, and the `conversationMode` preference keeps both selectable indefinitely (the
 WebRTC path shows the repo already tolerates three transports).
 
+## Live results (2026-09-13, real API, `--tts`)
+
+Runs: `pnpm spike:gpt-live --tts` (default 700 ms gap), the same with `--gap 1500`,
+`--auth subprotocol`, and `spike:gpt-live-delegation --mode client --tts`. Responses-mode
+delegation could not run: the key lacks the `api.responses.write` scope. Logs are under
+`tmp/spikes/gpt-live/` (untracked).
+
+| Measure | Result |
+| --- | --- |
+| Auth | `openai-insecure-api-key.*` subprotocol → HTTP 401 "provide Bearer auth". Header only. |
+| First input transcript delta | ~1.3–1.4 s after the user starts speaking |
+| Answer latency | output transcript ~0.7 s after the user's clip ends; the model also speaks *during* the user's utterance (backchannels ~5 s before clip end) |
+| Transcripts while speaking | yes: "Stop" was transcribed mid-output |
+| Emergency STOP (local parser, incremental) | fired 478–527 ms after the word ended (~1.9 s after it started) |
+| Model output after "Stop!" | 3.8–5.5 s of audio kept arriving, last delta ~3.7 s after stop started. The model did **not** stop on its own; local playback flush is mandatory |
+| "LOOI, turn around", 700 ms gap | split into "Louie, turn" + "around" (transcript deltas arrive with >700 ms wall-clock gaps mid-utterance); parser never fired |
+| "LOOI, turn around", 1500 ms gap | parsed 969 ms after clip end; model had already started replying ("Turning around!") ~3 s earlier |
+| Tone probe | model spoke in reply to a 440 Hz tone; no transcript |
+| Mute round trip | ack 24 ms; unmute acked |
+| Usage | per-second `session.usage.updated` every 15 s; 83 s session billed as 83 s; context usage ratio 0.02 after 83 s |
+| Client delegation | **0 of 3** turns delegated (memory question, "remember", language switch). The model answered by itself with first audio 60–95 ms after clip end. No `session.delegation.created` ever arrived |
+
+### What this changes in the verdicts
+
+- **Safety commands: workaround confirmed, with conditions.** Segment on audio-time
+  (`start_ms`/`end_ms`) or parse a sliding window on every delta rather than closing turns on
+  wall-clock gaps; 700 ms wall-clock splits commands. Expect ~1 s from end of command to
+  execution. STOP must flush local playback because the model keeps streaming.
+- **Barge-in: workaround, weaker than Realtime.** No truncation and the server keeps sending
+  audio for seconds after an interruption. The app must drop audio locally and accept that the
+  conversation context still contains the unheard reply.
+- **Full-duplex changes the command flow.** The model starts replying to "LOOI, turn around"
+  before the command is fully spoken, so a local command always races a spoken reply. The
+  parser wins on the robot (nothing moves from speech) but the user hears the model react
+  first.
+- **Memory/language tools via client delegation: blocker as tested.** With the delegation
+  policy in `session.instructions`, the model never delegated. Either the prompt is wrong
+  for this model, or client mode is meant for rarer, heavier tasks. Responses-mode delegation
+  is untested (scope). Until one of them works, memory recall, remember, and language
+  switching have no path on GPT-Live.
+- **Cost: confirmed per-second billing of the whole session, including silence.**
+
+### Found in passing (Realtime path, exists today)
+
+The addressed-command parser matched "Louie, tell me a long story about a robot who learns
+to dance" as `{kind: "dance"}`: verb regexes match anywhere in the command after the
+address. Filed in the planning repo suggestions.
+
 ## Open questions the real run answers
 
 1. Does Live's `session.input_transcript.delta` keep flowing while the model is speaking,
