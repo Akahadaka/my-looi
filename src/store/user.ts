@@ -15,6 +15,7 @@ import {
   type ResponseLanguage,
 } from "../language/response-language";
 import { DEFAULT_REALTIME_MODEL_ID, normalizeRealtimeModelId } from "../openai/realtime-models";
+import { DEFAULT_ROBOT_SITUATION, normalizeRobotSituation, type RobotSituation } from "../robot/robot-situation";
 import {
   DEFAULT_LISTENING_LANGUAGE,
   normalizeListeningLanguage,
@@ -177,6 +178,8 @@ export type UserPreferences = {
   ambientMotionLevel: AmbientMotionLevel;
   /** Model-authored movement that accompanies every Realtime reply. */
   expressiveMotionLevel: ExpressiveMotionLevel;
+  /** Where LOOI is and what it may do; changed by voice (set_situation tool) or Settings. */
+  robotSituation: RobotSituation;
   /** Opt-in local-only face attention used only during active social interaction. */
   cameraAttentionEnabled: boolean;
   /** Legacy combined visual preset kept only so older installs migrate predictably. */
@@ -244,6 +247,7 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   wakeWordEnabled: true,
   ambientMotionLevel: "normal",
   expressiveMotionLevel: "normal",
+  robotSituation: DEFAULT_ROBOT_SITUATION,
   cameraAttentionEnabled: false,
   faceSkin: "classic",
   faceStyle: "classic",
@@ -296,6 +300,7 @@ function loadPreferences(): UserPreferences {
       expressiveMotionLevel: normalizeExpressiveMotionLevel(
         (preferences as Partial<UserPreferences>).expressiveMotionLevel
       ),
+      robotSituation: normalizeRobotSituation((preferences as Partial<UserPreferences>).robotSituation),
       // Do not migrate the retired experimental `cameraEnabled` flag. The new
       // social camera feature is privacy-sensitive and must be explicitly enabled.
       cameraAttentionEnabled: (preferences as Partial<UserPreferences>).cameraAttentionEnabled === true,
@@ -327,6 +332,7 @@ function loadPreferences(): UserPreferences {
       preferences.ttsStyleId !== normalized.ttsStyleId ||
       (preferences as Partial<UserPreferences>).ambientMotionLevel !== normalized.ambientMotionLevel ||
       (preferences as Partial<UserPreferences>).expressiveMotionLevel !== normalized.expressiveMotionLevel ||
+      JSON.stringify((preferences as Partial<UserPreferences>).robotSituation) !== JSON.stringify(normalized.robotSituation) ||
       (preferences as Partial<UserPreferences>).cameraAttentionEnabled !== normalized.cameraAttentionEnabled ||
       (preferences as Partial<UserPreferences>).faceSkin !== normalized.faceSkin ||
       (preferences as Partial<UserPreferences>).faceStyle !== normalized.faceStyle ||

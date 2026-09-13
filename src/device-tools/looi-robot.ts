@@ -723,8 +723,9 @@ export async function performLooiSocialAttentionPivot(direction: "left" | "right
  * drive primitive and cliff/near-edge interlocks as ambient motion; the
  * choreography player is responsible for pairing pivots so heading returns.
  */
-export async function performLooiChoreographyPivot(direction: "left" | "right", durationMs: number) {
-  const boundedDurationMs = Math.max(80, Math.min(260, Math.round(durationMs)));
+export async function performLooiChoreographyPivot(direction: "left" | "right", durationMs: number, maxDurationMs = 260) {
+  const ceiling = Math.max(80, Math.min(400, Math.round(maxDurationMs)));
+  const boundedDurationMs = Math.max(80, Math.min(ceiling, Math.round(durationMs)));
   return runBoundedMotion(direction, boundedDurationMs, "manual-bounded", {
     choreography: true,
     choreographyPrimitive: "pivot",

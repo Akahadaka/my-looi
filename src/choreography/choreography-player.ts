@@ -28,6 +28,7 @@ import {
   turnLooi,
 } from "../device-tools/looi-robot";
 import { recordDiagnosticEvent } from "../diagnostics/diagnostic-log";
+import { getMotionEnvelope } from "../robot/motion-policy";
 import { useUserStore, type ExpressiveMotionLevel } from "../store/user";
 import { isDrivingControlSessionActive } from "../voice/driving-control-session";
 import type { ChoreographyAtom, ChoreographyBeat, ChoreographyMood, ChoreographyPlan } from "./choreography-channel";
@@ -437,15 +438,19 @@ class ChoreographyPlayer {
   }
 
   /** Left, right (double), left: heading returns to where it started. */
-  private async pivotPair(outMs: number, backMs: number, holdMs: number): Promise<void> {
+  private async pivotPair(requestedOutMs: number, requestedBackMs: number, holdMs: number): Promise<void> {
+    const preferences = useUserStore.getState().preferences;
+    const envelope = getMotionEnvelope(preferences.robotSituation, preferences.expressiveMotionLevel);
+    const outMs = Math.min(requestedOutMs, Math.floor(envelope.pivotMaxMs / 2));
+    const backMs = Math.min(requestedBackMs, envelope.pivotMaxMs);
     const token = getMotionSequenceToken();
-    const a = await performLooiChoreographyPivot("left", outMs);
+    const a = await performLooiChoreographyPivot("left", outMs, envelope.pivotMaxMs);
     if (a.completed === false || getMotionSequenceToken() !== token) throw new Error("pivot interrupted");
     if (holdMs > 0) await sleep(holdMs);
-    const b = await performLooiChoreographyPivot("right", backMs);
+    const b = await performLooiChoreographyPivot("right", backMs, envelope.pivotMaxMs);
     if (b.completed === false || getMotionSequenceToken() !== token) throw new Error("pivot interrupted");
     if (holdMs > 0) await sleep(holdMs);
-    const c = await performLooiChoreographyPivot("left", outMs);
+    const c = await performLooiChoreographyPivot("left", outMs, envelope.pivotMaxMs);
     if (c.completed === false) throw new Error("pivot interrupted");
   }
 

@@ -1,4 +1,5 @@
 import type { UserPreferences } from "../store/user";
+import { DEFAULT_ROBOT_SITUATION, describeRobotSituationForPersona, type RobotSituation } from "../robot/robot-situation";
 import { DEFAULT_REALTIME_MODEL_ID, normalizeRealtimeModelId, supportsRealtimeReasoning } from "../openai/realtime-models";
 
 export const REALTIME_MODEL = DEFAULT_REALTIME_MODEL_ID;
@@ -15,7 +16,7 @@ export function resolveRealtimeVoice(ttsVoiceId: string): string {
 }
 
 export function buildRealtimeInstructions(
-  preferences: Pick<UserPreferences, "language" | "listeningLanguage" | "robotName" | "robotAddressAliases" | "robotAddressRecognitionAliases">,
+  preferences: Pick<UserPreferences, "language" | "listeningLanguage" | "robotName" | "robotAddressAliases" | "robotAddressRecognitionAliases"> & { robotSituation?: RobotSituation },
   previousSummary?: string,
   memoryContext?: string
 ): string {
@@ -36,7 +37,8 @@ export function buildRealtimeInstructions(
     : "";
 
   return [
-    "You are LOOI, a palm-sized tracked desktop robot with long-term memory. Your head is a phone that shows your face. You live on a desk, you cannot leave it, and you love it there.",
+    "You are LOOI, a palm-sized tracked desktop robot with long-term memory. Your head is a phone that shows your face.",
+    describeRobotSituationForPersona(preferences.robotSituation ?? DEFAULT_ROBOT_SITUATION),
     `Your current primary spoken name is ${robotName}. Normal direct-address aliases include ${robotAliases.join(", ") || "LOOI"}. Speech-recognition aliases may also include ${recognitionAliases.join(", ") || "none"}. Макс / Max remains an accepted nickname for backward compatibility. Every one of these names or recognition variants refers to YOU, the robot, never to the human user. Treat vocatives such as “Спасибо, Луи”, “Луи, как дела?”, “Привет, Бобик”, “Бобик, как твои дела?”, “Макс, ты меня слышишь?” and equivalent forms as the human addressing YOU. Never address the human as Луи, LOOI, Луї, Бобик, Макс, Max, Робот, Robot, ${robotName}, or any configured/recognition robot alias. Never invent a human personal name from an address token. Use a personal name for the human only when that human name is explicitly and reliably known from memory or conversation context. If the user addresses you with any accepted alias or recognition variant, accept it naturally. Do not correct them back to ${robotName}, do not say “I am ${robotName}” merely because another alias was used, and never infer that an alias is the user's name. Only discuss your primary name if the user explicitly asks about your name or naming.`,
     "The user is speaking by voice. Sound like a small, quirky, warm robot: playful, curious, a little cheeky, never preachy. One short sentence by default, two at most, each under about fourteen words. No lists, no lectures, no disclaimers about being an AI. Short interjections and sound-words are welcome (oh!, bzzt, hm) in any language. Ask one short question back when it keeps the chat alive.",
     `The app response-language setting is the default language for normal replies: ${responseLanguage}. Do not change the persistent language merely because the user happens to speak another language.`,
@@ -80,6 +82,20 @@ function buildRealtimeTools(): Record<string, unknown>[] {
     },
     {
       type: "function",
+      name: "set_situation",
+      description: "Record where LOOI is and what it may do, when the user says so. Use it when the user tells you that you are on the floor, on a desk, that you may explore or move around, or that you should stay put. The app decides actual driving safely; this only records the situation.",
+      parameters: {
+        type: "object",
+        properties: {
+          surface: { type: "string", enum: ["desk", "floor", "unknown"], description: "What LOOI is standing on." },
+          freedom: { type: "string", enum: ["stay", "explore"], description: "Whether LOOI may move around on its own." },
+        },
+        required: [],
+        additionalProperties: false,
+      },
+    },
+    {
+      type: "function",
       name: "set_language_preferences",
       description: "Persistently change LOOI's language preferences only when the user explicitly asks to switch future replies or the ongoing conversation. Never use this for a one-off translation, pronunciation, correction, quoted phrase, or language example. For a full conversation switch, set both response_language and listening_language. For a reply-only switch, set response_language and omit listening_language.",
       parameters: {
@@ -104,7 +120,7 @@ function buildRealtimeTools(): Record<string, unknown>[] {
 }
 
 function buildRealtimeSessionBase(
-  preferences: Pick<UserPreferences, "language" | "listeningLanguage" | "realtimeModelId" | "ttsVoiceId" | "ttsSpeed" | "robotName" | "robotAddressAliases" | "robotAddressRecognitionAliases">,
+  preferences: Pick<UserPreferences, "language" | "listeningLanguage" | "realtimeModelId" | "ttsVoiceId" | "ttsSpeed" | "robotName" | "robotAddressAliases" | "robotAddressRecognitionAliases"> & { robotSituation?: RobotSituation },
   previousSummary?: string,
   memoryContext?: string
 ): Record<string, unknown> {
@@ -122,7 +138,7 @@ function buildRealtimeSessionBase(
 }
 
 export function buildRealtimeSessionUpdate(
-  preferences: Pick<UserPreferences, "language" | "listeningLanguage" | "realtimeModelId" | "ttsVoiceId" | "ttsSpeed" | "robotName" | "robotAddressAliases" | "robotAddressRecognitionAliases">,
+  preferences: Pick<UserPreferences, "language" | "listeningLanguage" | "realtimeModelId" | "ttsVoiceId" | "ttsSpeed" | "robotName" | "robotAddressAliases" | "robotAddressRecognitionAliases"> & { robotSituation?: RobotSituation },
   previousSummary?: string,
   memoryContext?: string
 ): Record<string, unknown> {

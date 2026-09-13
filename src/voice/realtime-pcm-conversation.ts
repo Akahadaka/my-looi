@@ -46,6 +46,7 @@ import {
   readChoreographyResponseTopic,
 } from "../choreography/choreography-channel";
 import { choreographyPlayer } from "../choreography/choreography-player";
+import { normalizeRobotFreedom, normalizeRobotSurface } from "../robot/robot-situation";
 
 const WS_OPEN_TIMEOUT_MS = 9_000;
 // Out-of-band choreography request per user turn, executed by the choreography player.
@@ -946,6 +947,26 @@ export class RealtimePcmConversationService {
           createObservation(note, "voice", "note").metadata
         );
         output = { ok: true, remembered: note };
+      } else if (name === "set_situation") {
+        const before = useUserStore.getState().preferences.robotSituation;
+        const surface = args.surface == null ? before.surface : normalizeRobotSurface(String(args.surface).trim());
+        const freedom = args.freedom == null ? before.freedom : normalizeRobotFreedom(String(args.freedom).trim());
+        useUserStore.getState().updatePreferences({ robotSituation: { surface, freedom } });
+        this.applySessionPreferences("realtime-situation-tool");
+        recordDiagnosticEvent("robot", "situation-changed", {
+          fromSurface: before.surface,
+          fromFreedom: before.freedom,
+          surface,
+          freedom,
+          source: "realtime-tool",
+        });
+        output = {
+          ok: true,
+          surface,
+          freedom,
+          instruction: "Acknowledge briefly in one short sentence. Do not describe or promise driving; the app handles movement.",
+          persistent: true,
+        };
       } else if (name === "set_language_preferences") {
         const responseLanguage = String(args.response_language ?? "").trim();
         if (responseLanguage !== "ru" && responseLanguage !== "uk" && responseLanguage !== "en") {

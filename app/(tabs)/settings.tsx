@@ -579,6 +579,18 @@ export default function SettingsScreen() {
           </ButtonRow>
         </View>
         <View style={styles.subCard}>
+          <Text style={styles.label}>{t("settings.robotSituation")}</Text>
+          <Text style={styles.help}>{t("settings.robotSituationHelp")}</Text>
+          <ButtonRow>
+            <SmallChoice selected={preferences.robotSituation.surface === "desk"} label={t("settings.robotSurfaceDesk")} onPress={() => updatePreferences({ robotSituation: { ...preferences.robotSituation, surface: "desk" } })} />
+            <SmallChoice selected={preferences.robotSituation.surface === "floor"} label={t("settings.robotSurfaceFloor")} onPress={() => updatePreferences({ robotSituation: { ...preferences.robotSituation, surface: "floor" } })} />
+          </ButtonRow>
+          <ButtonRow>
+            <SmallChoice selected={preferences.robotSituation.freedom === "stay"} label={t("settings.robotFreedomStay")} onPress={() => updatePreferences({ robotSituation: { ...preferences.robotSituation, freedom: "stay" } })} />
+            <SmallChoice selected={preferences.robotSituation.freedom === "explore"} label={t("settings.robotFreedomExplore")} onPress={() => updatePreferences({ robotSituation: { ...preferences.robotSituation, freedom: "explore" } })} />
+          </ButtonRow>
+        </View>
+        <View style={styles.subCard}>
           <Text style={styles.label}>{t("settings.expressiveMotion")}</Text>
           <Text style={styles.help}>{t("settings.expressiveMotionHelp")}</Text>
           <ButtonRow>
