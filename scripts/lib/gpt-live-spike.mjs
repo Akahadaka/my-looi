@@ -14,7 +14,9 @@ import { dirname, join } from "node:path";
 import { connect as connectTls } from "node:tls";
 import { fileURLToPath } from "node:url";
 
-export const LIVE_WS_URL = "wss://api.openai.com/v1/live/sessions";
+/** Override with GPT_LIVE_URL / OPENAI_SPEECH_URL to dry-run against a local mock. */
+export const LIVE_WS_URL = process.env.GPT_LIVE_URL?.trim() || "wss://api.openai.com/v1/live/sessions";
+export const SPEECH_URL = process.env.OPENAI_SPEECH_URL?.trim() || "https://api.openai.com/v1/audio/speech";
 export const LIVE_MODEL = "gpt-live-1";
 export const PCM_RATE = 24_000;
 /** 100 ms of 24 kHz mono PCM16 per append, paced in real time like the app would. */
@@ -473,7 +475,7 @@ export async function ttsClip(apiKey, text, { voice = "alloy", model = "gpt-4o-m
   const cacheKey = createHash("sha1").update(`${model}|${voice}|${instructions ?? ""}|${text}`).digest("hex").slice(0, 16);
   const cachePath = join(cacheDir, `${cacheKey}.pcm`);
   if (existsSync(cachePath)) return { pcm: readFileSync(cachePath), cached: true, path: cachePath };
-  const response = await fetch("https://api.openai.com/v1/audio/speech", {
+  const response = await fetch(SPEECH_URL, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({ model, voice, input: text, response_format: "pcm", ...(instructions ? { instructions } : {}) }),
