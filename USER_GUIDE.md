@@ -113,6 +113,21 @@ In **Settings → Robot → Natural motion**, choose one of four levels:
 
 User speech and explicit commands take priority. Ambient body motion uses the same bounded safety interlocks and is not continuous autonomous driving.
 
+### Expressive motion (reply choreography)
+
+LOOI talks with its body. For every spoken reply the Realtime model also proposes a short movement plan with a mood and an energy level, and the app plays it in time with the speech: bobs and wiggles on a joke, a slow head lean on bad news, a nod at the end of a sentence. If the plan is late or missing, a local fallback still moves the head from the rhythm of the reply, so LOOI never speaks with a frozen body.
+
+In **Settings → Robot → Expressive motion**, choose one of four levels:
+
+- **Off** — replies play with no movement.
+- **Head only** — head and face only; the wheels never move.
+- **Normal** (default) — adds tiny body wiggles and sways that always return to the starting heading.
+- **Lively** — also allows one full spin on very excited replies.
+
+Two preview buttons play a fixed lively plan and a fixed gentle plan so you can feel a level without a conversation. Previews require the robot to be connected.
+
+Safety rules are the same as everywhere else: the model never gets a driving tool, every wheel move goes through the bounded motion controller with cliff and near-edge checks, and STOP, addressed commands, user speech and Camera Attention all interrupt or outrank choreography.
+
 ## 9. Camera Attention
 
 **Camera Attention** is optional and off by default. Enable it in **Settings → Robot → Camera Attention**. Android asks for camera permission only when the feature is enabled.

@@ -45,6 +45,7 @@
 - Emergency STOP command path.
 - Movement deadman protection.
 - Directional cliff-safety checks.
+- Expressive motion: every Realtime reply comes with model-authored choreography (mood, energy, head/body/light/face beats) played in time with speech through the bounded safety controller, with a local fallback so replies never play with a frozen body. Off / Head only / Normal / Lively levels; body atoms are net-zero on heading, spins only at Lively on excited replies; STOP, addressed commands, barge-in and Camera Attention take priority.
 - Natural motion with Off / Subtle / Normal / Lively levels. Idle motion can include tiny bounded body pivots through the existing cliff/near-edge safety controller; actual user speech and explicit commands always preempt it.
 - Optional local-only Camera Attention. During an active conversation, the front camera can briefly detect a face on-device, visibly direct the screen eyes toward it before physical correction is needed, and issue small bounded head/body recentering corrections. Camera Attention temporarily owns the head channel while a face is tracked so low-priority ambient head gestures do not fight tracking; safe ambient body motion remains independent. Camera Attention never translates toward a person.
 - Face personalization combines independent color palettes with Classic, Soft, Playful, Cap, Cowboy, Bandana and Sharp styles.
