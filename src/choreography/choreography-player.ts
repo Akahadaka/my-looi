@@ -54,6 +54,7 @@ const END_BEAT_FROM = 0.9;
 const FALLBACK_TAKEOVER_FRACTION = 0.45;
 const LOOP_TICK_MS = 50;
 const AFTER_PLAYBACK_GRACE_MS = 1_500;
+const PREVIEW_REPLY_MS = 4_000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -187,6 +188,31 @@ class ChoreographyPlayer {
     if (!state) return;
     state.playbackFinishedAt = Date.now();
     state.playedDurationMs = Math.max(0, Math.round(playedDurationMs));
+  }
+
+  /**
+   * Settings preview: play a fixed plan against a synthetic 4 s "reply" so the
+   * user can feel a level without talking to the robot. Resolves when the plan
+   * has had time to finish; the normal loop, arbitration and cancel apply.
+   */
+  async playPreview(kind: "lively" | "gentle"): Promise<void> {
+    const plan: ChoreographyPlan = kind === "lively"
+      ? { mood: "lively", energy: 0.85, beats: [
+        { at: 0, do: "bob", n: 1 }, { at: 0.25, do: "wiggle", n: 1 }, { at: 0.5, do: "face:pleased", n: 1 },
+        { at: 0.7, do: "nod", n: 2 }, { at: 1, do: "settle", n: 1 },
+      ] }
+      : { mood: "gentle", energy: 0.25, beats: [
+        { at: 0, do: "lean_down", n: 1 }, { at: 0.45, do: "nod", n: 1 }, { at: 0.75, do: "droop", n: 1 }, { at: 1, do: "settle", n: 1 },
+      ] };
+    const turn = `preview-${kind}-${Date.now()}`;
+    this.startTurn(turn);
+    this.setPlan(plan, "model", turn);
+    this.onTranscriptDelta("x".repeat(56));
+    this.onPlaybackStarted();
+    recordDiagnosticEvent("character", "choreography-preview", { kind, level: this.level });
+    await sleep(PREVIEW_REPLY_MS);
+    this.onPlaybackFinished(PREVIEW_REPLY_MS);
+    await sleep(AFTER_PLAYBACK_GRACE_MS + 200);
   }
 
   /** Abort everything for this turn. Safe to call at any time. */

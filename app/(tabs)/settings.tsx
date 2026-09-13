@@ -8,6 +8,7 @@ import { looiTheme } from "@/src/ui/looi-theme";
 import { useUserStore, type ConversationMode, type CustomVoiceCommandAction, type FacePaletteId, type FaceStyleId, type VoiceCommandLanguage } from "@/src/store/user";
 import { voiceRuntime } from "@/src/perceivers/voice-runtime";
 import { parseRealtimePhysicalCommand } from "@/src/voice/realtime-physical-command";
+import { choreographyPlayer } from "@/src/choreography/choreography-player";
 import { syncVoiceRuntime } from "@/src/core/app-bootstrap";
 import { recordDiagnosticEvent, clearDiagnosticLog, getDiagnosticLogEntries } from "@/src/diagnostics/diagnostic-log";
 import {
@@ -117,6 +118,7 @@ export default function SettingsScreen() {
   const [backupBusy, setBackupBusy] = useState(false);
   const [backupResult, setBackupResult] = useState<string | null>(null);
   const [diagnosticBusy, setDiagnosticBusy] = useState(false);
+  const [choreographyPreviewBusy, setChoreographyPreviewBusy] = useState(false);
   const [diagnosticResult, setDiagnosticResult] = useState<string | null>(null);
   const [diagnosticFolder, setDiagnosticFolder] = useState(() => getDiagnosticExportFolder());
   const [updateBusy, setUpdateBusy] = useState(false);
@@ -195,6 +197,19 @@ export default function SettingsScreen() {
   }, [refreshMemory, refreshModels, refreshOpenAi, refreshOpenAiModels, refreshRobot]));
 
   useEffect(() => subscribeLooiRobotRuntimeState(() => setRobotRuntime(getLooiRobotRuntimeState())), []);
+
+  const runChoreographyPreview = useCallback(async (kind: "lively" | "gentle") => {
+    if (choreographyPreviewBusy) return;
+    setChoreographyPreviewBusy(true);
+    recordDiagnosticEvent("navigation", "choreography-preview-pressed", { kind });
+    try {
+      await choreographyPlayer.playPreview(kind);
+    } catch (error) {
+      recordDiagnosticEvent("character", "choreography-preview-failed", { kind, error: error instanceof Error ? error.message : String(error) });
+    } finally {
+      setChoreographyPreviewBusy(false);
+    }
+  }, [choreographyPreviewBusy]);
 
   const selectConversationMode = useCallback((conversationMode: ConversationMode) => {
     updatePreferences({ conversationMode });
@@ -561,6 +576,20 @@ export default function SettingsScreen() {
             <SmallChoice selected={preferences.ambientMotionLevel === "subtle"} label={t("settings.ambientMotionSubtle")} onPress={() => updatePreferences({ ambientMotionLevel: "subtle" })} />
             <SmallChoice selected={preferences.ambientMotionLevel === "normal"} label={t("settings.ambientMotionNormal")} onPress={() => updatePreferences({ ambientMotionLevel: "normal" })} />
             <SmallChoice selected={preferences.ambientMotionLevel === "lively"} label={t("settings.ambientMotionLively")} onPress={() => updatePreferences({ ambientMotionLevel: "lively" })} />
+          </ButtonRow>
+        </View>
+        <View style={styles.subCard}>
+          <Text style={styles.label}>{t("settings.expressiveMotion")}</Text>
+          <Text style={styles.help}>{t("settings.expressiveMotionHelp")}</Text>
+          <ButtonRow>
+            <SmallChoice selected={preferences.expressiveMotionLevel === "off"} label={t("settings.expressiveMotionOff")} onPress={() => updatePreferences({ expressiveMotionLevel: "off" })} />
+            <SmallChoice selected={preferences.expressiveMotionLevel === "head"} label={t("settings.expressiveMotionHead")} onPress={() => updatePreferences({ expressiveMotionLevel: "head" })} />
+            <SmallChoice selected={preferences.expressiveMotionLevel === "normal"} label={t("settings.expressiveMotionNormal")} onPress={() => updatePreferences({ expressiveMotionLevel: "normal" })} />
+            <SmallChoice selected={preferences.expressiveMotionLevel === "lively"} label={t("settings.expressiveMotionLively")} onPress={() => updatePreferences({ expressiveMotionLevel: "lively" })} />
+          </ButtonRow>
+          <ButtonRow>
+            <Action label={t("settings.expressivePreviewLively")} onPress={() => void runChoreographyPreview("lively")} disabled={choreographyPreviewBusy || !robotRuntime.connected || preferences.expressiveMotionLevel === "off"} secondary />
+            <Action label={t("settings.expressivePreviewGentle")} onPress={() => void runChoreographyPreview("gentle")} disabled={choreographyPreviewBusy || !robotRuntime.connected || preferences.expressiveMotionLevel === "off"} secondary />
           </ButtonRow>
         </View>
         <View style={styles.subCard}>
