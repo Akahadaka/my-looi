@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.1.137 — unreleased
+
+- Added expressive choreography: every Realtime reply is accompanied by model-authored movement (mood, energy, head/body/light/face beats) requested through an out-of-band Realtime response and played in time with speech through the existing bounded safety controller. A local punctuation-driven fallback keeps replies moving when the plan is late or invalid.
+- Rewrote the Realtime persona: a palm-sized tracked desktop robot with a phone head, one short quirky sentence by default, interjections allowed in any language, never narrating its own movement. The no-movement-tool and local deterministic command rules are unchanged.
+- New Settings → Robot → Expressive motion level (Off / Head only / Normal / Lively, default Normal) with two preview buttons. Body atoms are net-zero on heading; spins only at Lively on excited replies; STOP, addressed commands, barge-in and Camera Attention take priority.
+- New robot primitives: bounded choreography pivot, partial head lean, exported motion sequence token.
+- Spike tooling: `pnpm spike:choreography` measures the out-of-band channel against the live API; Node test resolver for app TypeScript modules.
+
 ## 2.1.136 — 2026-08-31
 
 - Rolled the OpenAI Realtime server-VAD threshold back from the aggressive 0.10 experiment to 0.15 after physical testing showed 0.10 still did not provide reliable far-field conversation. The protected 500 ms prefix padding, 1000 ms silence duration and `far_field` input noise reduction remain unchanged.

@@ -66,7 +66,8 @@ assert.ok(update.session.instructions.includes("accepted nickname"));
 assert.ok(update.session.instructions.includes("Пользователь любит роботов."));
 
 const toolNames = update.session.tools.map((tool) => tool.name).sort();
-assert.deepEqual(toolNames, ["remember", "search_memory", "set_language_preferences"]);
+assert.deepEqual(toolNames, ["remember", "search_memory", "set_language_preferences", "set_situation"]);
+assert.ok(update.session.instructions.includes("call set_situation"), "persona tells the model to record what the user says about its surroundings");
 assert.equal(toolNames.some((name) => /move|drive|turn|sleep|robot/i.test(name)), false, "Realtime must expose no physical robot tools");
 
 const source = Array.from({ length: 1600 }, (_, i) => Math.sin(i / 20) * 0.4);

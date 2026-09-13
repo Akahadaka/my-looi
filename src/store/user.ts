@@ -15,6 +15,7 @@ import {
   type ResponseLanguage,
 } from "../language/response-language";
 import { DEFAULT_REALTIME_MODEL_ID, normalizeRealtimeModelId } from "../openai/realtime-models";
+import { DEFAULT_ROBOT_SITUATION, normalizeRobotSituation, type RobotSituation } from "../robot/robot-situation";
 import {
   DEFAULT_LISTENING_LANGUAGE,
   normalizeListeningLanguage,
@@ -143,6 +144,13 @@ export function normalizeAmbientMotionLevel(value: unknown): AmbientMotionLevel 
   return value === "off" || value === "subtle" || value === "normal" || value === "lively" ? value : "normal";
 }
 
+/** Reply choreography: off, head/face only, normal (adds net-zero body pivots), lively (adds spins). */
+export type ExpressiveMotionLevel = "off" | "head" | "normal" | "lively";
+
+export function normalizeExpressiveMotionLevel(value: unknown): ExpressiveMotionLevel {
+  return value === "off" || value === "head" || value === "normal" || value === "lively" ? value : "normal";
+}
+
 export function isRealtimeConversationMode(mode: ConversationMode): boolean {
   return mode === "realtime" || mode === "realtime_pcm";
 }
@@ -168,6 +176,10 @@ export type UserPreferences = {
   wakeWordEnabled: boolean;
   /** Low-priority active-idle physical motion: off, head-only subtle, or normal with safe micro-pivots. */
   ambientMotionLevel: AmbientMotionLevel;
+  /** Model-authored movement that accompanies every Realtime reply. */
+  expressiveMotionLevel: ExpressiveMotionLevel;
+  /** Where LOOI is and what it may do; changed by voice (set_situation tool) or Settings. */
+  robotSituation: RobotSituation;
   /** Opt-in local-only face attention used only during active social interaction. */
   cameraAttentionEnabled: boolean;
   /** Legacy combined visual preset kept only so older installs migrate predictably. */
@@ -234,6 +246,8 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   ttsSpeed: DEFAULT_TTS_SPEED,
   wakeWordEnabled: true,
   ambientMotionLevel: "normal",
+  expressiveMotionLevel: "normal",
+  robotSituation: DEFAULT_ROBOT_SITUATION,
   cameraAttentionEnabled: false,
   faceSkin: "classic",
   faceStyle: "classic",
@@ -283,6 +297,10 @@ function loadPreferences(): UserPreferences {
       ambientMotionLevel: normalizeAmbientMotionLevel(
         (preferences as Partial<UserPreferences>).ambientMotionLevel
       ),
+      expressiveMotionLevel: normalizeExpressiveMotionLevel(
+        (preferences as Partial<UserPreferences>).expressiveMotionLevel
+      ),
+      robotSituation: normalizeRobotSituation((preferences as Partial<UserPreferences>).robotSituation),
       // Do not migrate the retired experimental `cameraEnabled` flag. The new
       // social camera feature is privacy-sensitive and must be explicitly enabled.
       cameraAttentionEnabled: (preferences as Partial<UserPreferences>).cameraAttentionEnabled === true,
@@ -313,6 +331,8 @@ function loadPreferences(): UserPreferences {
       preferences.ttsVoiceId !== normalized.ttsVoiceId ||
       preferences.ttsStyleId !== normalized.ttsStyleId ||
       (preferences as Partial<UserPreferences>).ambientMotionLevel !== normalized.ambientMotionLevel ||
+      (preferences as Partial<UserPreferences>).expressiveMotionLevel !== normalized.expressiveMotionLevel ||
+      JSON.stringify((preferences as Partial<UserPreferences>).robotSituation) !== JSON.stringify(normalized.robotSituation) ||
       (preferences as Partial<UserPreferences>).cameraAttentionEnabled !== normalized.cameraAttentionEnabled ||
       (preferences as Partial<UserPreferences>).faceSkin !== normalized.faceSkin ||
       (preferences as Partial<UserPreferences>).faceStyle !== normalized.faceStyle ||
