@@ -1,8 +1,8 @@
 # My LOOI User Guide
 
-This guide covers the public **My LOOI v2.1.136** Android release.
+This guide covers the public **My LOOI v2.1.151** Android source line.
 
-My LOOI is an unofficial, community-developed Android companion for the LOOI robot. It combines realtime voice conversation, local memory, multilingual interaction, configurable robot commands, local-only camera attention, and safety-bounded BLE control.
+My LOOI is an unofficial, community-developed Android companion for the LOOI robot. It combines Realtime voice conversation, local memory, multilingual interaction, configurable robot commands, explicit visual look, local-only Camera Attention, appearance options, and safety-bounded BLE control.
 
 ## 1. What you need
 
@@ -10,7 +10,8 @@ My LOOI is an unofficial, community-developed Android companion for the LOOI rob
 - The My LOOI APK.
 - Bluetooth enabled.
 - An OpenAI API key for Realtime conversation.
-- Microphone permission. Camera permission is optional and is requested only if Camera Attention is enabled.
+- Microphone permission.
+- Camera permission when Camera Attention or an explicit visual-look command is used.
 
 The OpenAI API key is entered inside the app and stored with Android SecureStore. Do not put API keys into source files or share them in diagnostics.
 
@@ -20,206 +21,172 @@ The OpenAI API key is entered inside the app and stored with Android SecureStore
 2. Choose the **Interface language**, **Listening language**, and **Response language**. They are independent.
 3. Enter and save your **OpenAI API key**.
 4. Refresh the available Realtime models and choose a model.
-5. Choose a Realtime voice and use the preview button if desired.
+5. Choose a Realtime voice and use the preview button if desired. You can also choose the independent **Speech grammatical gender** used when LOOI refers to itself in Russian/Ukrainian.
 6. In **Robot**, scan for your LOOI and save/connect it.
-7. Optionally configure the robot name, voice-command aliases, appearance, natural motion, Camera Attention, backup folder, and custom phrases.
+7. Optionally configure the robot name, command aliases, natural motion, Camera Attention, appearance, backup folder, and custom phrases.
 
 The interface, listening, and response languages support **Ukrainian, English and Russian**.
 
-## 3. Normal conversation
+## 3. OpenAI API status and billing
 
-The primary conversation mode is **Realtime PCM**. My LOOI owns microphone capture and playback directly and supports natural interruption: if you start speaking while the assistant is talking, playback can be interrupted and the unheard portion of the reply is truncated from the conversation state.
+**Settings → OpenAI** shows the last known API state next to the saved key. My LOOI can report states such as a valid key, a successfully working Realtime session, rejected credentials, or exhausted prepaid credits.
 
-You can talk naturally, ask follow-up questions, request translations or pronunciation, and ask the assistant to switch the default response language. Ordinary conversation does not use the deterministic movement-command parser described below.
+A normal project API key does not expose the exact prepaid dollar balance to the app. Use **Open OpenAI Billing** in Settings to view the authoritative balance and add credits. If OpenAI returns `credit_balance_exhausted`, My LOOI also shows a visible error on the main face instead of silently appearing unresponsive.
 
-Speech recognition quality depends on the phone, room acoustics, distance, background noise, and speaking level. If quiet far-field speech is missed, move closer or speak a little louder and use **Settings → Diagnostics** to export a diagnostic ZIP when reporting a reproducible problem.
+## 4. Normal conversation
 
-## 4. Robot name and addressing
+The primary conversation mode is **Realtime PCM**. My LOOI owns microphone capture and playback directly and supports natural interruption: if you start speaking while the assistant is talking, playback can be interrupted and the unheard portion of the reply is truncated from conversation state.
 
-The robot has a configurable **primary spoken name**. You can also add normal address aliases and speech-recognition aliases in **Settings → Voice Commands**.
+You can talk naturally, ask follow-up questions, request translations or pronunciation, and ask the assistant to switch the default response language. Ordinary conversation does not require saying the robot name first.
 
-For compatibility, common built-in robot addresses include forms such as **LOOI / Луи / Луї / Макс / Max / Robot / Робот**. Configured aliases are names of the robot, not names of the human user.
+### Speech grammatical gender
 
-For safety, deterministic physical commands normally require the robot address **at the beginning of the utterance**. For example:
+In **Settings → LOOI voice**, choose **Masculine** or **Feminine** grammatical self-reference independently from the OpenAI voice and visual character. This mainly affects languages such as Russian and Ukrainian: for example, LOOI can say `я увидел` / `я побачив` or `я увидела` / `я побачила`. This setting describes LOOI's own speech only; it does not infer the human user's gender.
 
-- `Луи, поверни налево.`
-- `Бобик, кивни три раза.` — if `Бобик` is configured as a robot name/alias.
-- `LOOI, move forward.`
+## 5. Robot name and addressing
 
-The exception is the emergency STOP keyword, described below.
+The robot has a configurable **primary spoken name**. You can also add normal address aliases and narrower speech-recognition aliases in **Settings → Voice Commands**.
 
-## 5. Built-in physical voice commands
+Common built-in robot addresses include **LOOI / Луи / Луї / Макс / Max / Robot / Робот**. Configured aliases are names of the robot, not names of the human user.
 
-The examples below are representative built-in phrases; several natural variants are accepted. Except for emergency STOP, start the command with the robot name or an accepted robot alias.
+For safety, deterministic physical commands normally require the robot address at the beginning of the utterance. Emergency STOP is the exception.
 
-| Action | Russian examples | Ukrainian examples | English examples |
+## 6. Built-in physical voice commands
+
+Representative examples include:
+
+| Action | Russian | Ukrainian | English |
 | --- | --- | --- | --- |
 | Emergency stop | `Стоп`, `Луи, остановись` | `Стоп`, `Луї, зупинись` | `Stop`, `LOOI, halt` |
-| Move forward | `Луи, вперёд`, `Луи, езжай прямо` | `Луї, вперед`, `Луї, рухайся вперед` | `LOOI, forward`, `LOOI, move ahead` |
-| Move backward | `Луи, назад`, `Луи, езжай обратно` | `Луї, назад` | `LOOI, backward`, `LOOI, reverse` |
-| Turn left | `Луи, налево`, `Луи, поверни влево` | `Луї, ліворуч`, `Луї, поверни вліво` | `LOOI, left`, `LOOI, turn left` |
-| Turn right | `Луи, направо`, `Луи, поверни вправо` | `Луї, праворуч` | `LOOI, right`, `LOOI, turn right` |
-| Turn around | `Луи, развернись`, `Луи, 180 градусов` | `Луї, розвернись`, `Луї, 180 градусів` | `LOOI, turn around`, `LOOI, U-turn` |
-| Nod | `Луи, кивни`, `Луи, кивни три раза` | `Луї, зроби кивок` | `LOOI, nod`, `LOOI, nod your head` |
-| Dance | `Луи, потанцуй` | `Луї, потанцюй` | `LOOI, dance`, `LOOI, do a dance` |
-| Sleep | `Луи, спи`, `Луи, иди спать` | `Луї, спати`, `Луї, іди спати` | `LOOI, sleep`, `LOOI, go to sleep` |
+| Forward | `Луи, вперёд` | `Луї, вперед` | `LOOI, forward` |
+| Backward | `Луи, назад` | `Луї, назад` | `LOOI, backward` |
+| Left | `Луи, поверни налево` | `Луї, поверни вліво` | `LOOI, turn left` |
+| Right | `Луи, поверни направо` | `Луї, поверни вправо` | `LOOI, turn right` |
+| Turn around | `Луи, развернись` | `Луї, розвернись` | `LOOI, turn around` |
+| Nod | `Луи, кивни` | `Луї, кивни` | `LOOI, nod` |
+| Dance | `Луи, потанцуй` | `Луї, потанцюй` | `LOOI, dance` |
+| Sleep | `Луи, иди спать` | `Луї, іди спати` | `LOOI, go to sleep` |
 
-### Emergency STOP
+**`Стоп` / `Stop` is a universal safety command and does not require the robot name.** Movement remains bounded by the existing BLE/deadman/cliff safety path.
 
-**`Стоп` / `Stop` is a universal safety command and does not require the robot name.** It is intentionally handled differently from ordinary movement commands.
+## 7. Custom voice phrases
 
-### Movement safety
+Open **Settings → Voice Commands → Custom phrases**. The section is collapsed by default and shows the configured phrase count.
 
-Forward/backward movement is deliberately bounded. Movement execution retains BLE lifecycle checks, deadman protection, and directional cliff/near-edge safety interlocks. Custom phrases do not bypass these protections.
+Custom phrases can be tagged as **UK**, **EN**, or **RU**. Physical actions still route through the same deterministic parser and protected executor. The phrase tester checks parsing only and does not move the robot or take a photograph.
 
-## 6. Custom voice phrases
+The visual action **Look here / see this** can also have custom language-tagged phrases. Like the built-in visual action, it still requires an explicit robot address.
 
-Open **Settings → Voice Commands → Custom phrases**. The section is collapsed by default and shows the number of configured phrases in its summary.
+## 8. Explicit visual look
 
-You can add custom phrases for:
+You can explicitly show LOOI a page, package, label, object, diagram, or other visual content and continue discussing it by voice.
 
-- Emergency stop
-- Forward
-- Backward
-- Left
-- Right
-- Turn around
-- Nod
-- Dance
-- Sleep
+Examples:
 
-Each custom phrase can be tagged as **UK**, **EN**, or **RU**. Exact custom phrases are routed through the same deterministic parser and protected movement executor as the built-in commands.
+- `Луи, посмотри сюда.`
+- `Бобик, смотри, что я показываю.`
+- `Луи, посмотри на эту страницу.`
+- `Бобик, прочитай, что здесь написано.`
+- `LOOI, look at this.`
 
-Important rules:
+A visual request must start with the robot name or an accepted robot alias. Broad unaddressed phrases such as just `смотри` do not trigger cloud image capture.
 
-- Wheel movement, turns, dance, nod and sleep still require the robot address at the start of the utterance.
-- Emergency-stop custom phrases are the safety exception and do not require an address.
-- Very short/generic phrases such as simple yes/no/OK-style words are rejected for safety.
-- Conflicting phrases are rejected.
-- Use **Voice Commands → Test phrase** to check how a phrase parses. The test does **not** move the robot.
+### Front and rear camera
 
-## 7. Sleep and wake
+The **front camera is the default** because it points toward the person interacting with a phone mounted on LOOI.
 
-An addressed sleep command puts LOOI into the app's sleep state with a visibly sleeping face. Manual wake uses a **single tap on the face**.
+For fine text or a document that is easier to aim with the main phone camera, explicitly request the rear camera, for example:
 
-## 8. Natural motion
+- `Бобик, посмотри задней камерой.`
+- `Луи, сфотографируй это задней камерой.`
+- `LOOI, look at this with the rear camera.`
 
-In **Settings → Robot → Natural motion**, choose one of four levels:
+My LOOI selects a suitable rear camera through Android Camera2 instead of relying on a hard-coded camera ID. It prefers a normal autofocus-capable rear camera when the device exposes several rear sensors.
 
-- **Off** — no ambient motion.
-- **Subtle** — conservative head-only idle behavior.
-- **Normal** — natural head behavior plus occasional small safety-bounded body pivots.
-- **Lively** — denser, more active idle/conversation behavior.
+### Image quality and light
 
-User speech and explicit commands take priority. Ambient body motion uses the same bounded safety interlocks and is not continuous autonomous driving.
+Explicit-look capture uses a higher-resolution JPEG than the local Camera Attention analysis stream. The app lets Camera2 auto-exposure and auto-white-balance settle before a newly opened camera takes the still. Rear-camera capture may use automatic flash when the selected camera reports flash capability.
 
-## 9. Camera Attention
+Diagnostic metadata can include the camera side, image dimensions, AF/AE/AWB state, exposure time, ISO and a low-light hint. The image bytes themselves are not written to diagnostics.
 
-**Camera Attention** is optional and off by default. Enable it in **Settings → Robot → Camera Attention**. Android asks for camera permission only when the feature is enabled.
+For tiny packaging text, use the rear camera when practical, fill a useful part of the frame, avoid glare, and provide enough light. If the visible text is genuinely unreadable, LOOI should say so rather than inventing it.
 
-During an active interaction, Camera Attention can:
+### Privacy of explicit visual look
 
-- detect a visible face locally on the phone;
-- direct the on-screen eyes toward the face even for small offsets;
-- make bounded head corrections when needed;
-- make small bounded body recentering corrections;
-- perform a finite search if an interaction begins and no face is initially visible.
+The still is captured in memory and sent to the **current OpenAI Realtime conversation** only after an explicit addressed visual request. My LOOI does not write the snapshot to its own photo files or diagnostic archive. The newest image remains conversation context for follow-up questions until the conversation context changes.
 
-It is intentionally **not permanent face-following**. It does not autonomously drive forward toward a person. When a face is tracked, Camera Attention temporarily owns the head channel so low-priority ambient head gestures do not fight the tracking motion.
+### Choose photos from Android Photo Picker
 
-Camera frames are processed locally in memory, are not saved, are not uploaded by My LOOI, and are not included in diagnostic exports.
+Tap the small **photo/gallery icon** on LOOI's face to open Android Photo Picker. You can choose **up to four** existing images. Android grants My LOOI scoped access only to the photos you explicitly select; My LOOI does not request permission to browse the whole gallery. My LOOI reads those selected images immediately after the picker returns and may temporarily persist the scoped read grant for those exact selections when Android/provider support is available; the grant is released when the photos have been prepared and sent into the discussion.
 
-## 10. Face appearance
+After you return, the selected images are added to the current Realtime discussion in selection order as photo 1, photo 2, and so on. You can then continue naturally by voice, for example: `what is on the first photo?`, `compare the first and second`, or `read the text on the second photo`.
 
-Open **Settings → Appearance** to choose a face style and color palette independently.
+Opening the system picker temporarily backgrounds My LOOI. Sensitive microphone/BLE/Realtime runtime is still suspended while the picker is open, but the app uses an explicit external-activity lease so the normal five-second background process kill does not terminate the selection flow. When My LOOI returns, it reseeds a bounded recent text transcript and then adds the selected photos before continuing the discussion.
 
-Current styles include:
+Selected photos are temporary conversation context. They are converted in memory for Realtime, are not copied into durable My LOOI storage, are not added to diagnostics, and are not written into long-term memory automatically.
 
-- Classic
-- Soft
-- Playful
-- Cap
-- Cowboy
-- Bandana
-- Sharp
+## 9. Sleep and wake
 
-Current palettes include:
+An addressed sleep command puts LOOI into the app sleep state with a visibly sleeping face. Manual wake uses a **single tap on the face**.
 
-- Cyan
-- Rose
-- Lime
-- Amber
-- Violet
+## 10. Natural motion
 
-Appearance changes presentation only; they do not change movement or safety behavior.
+In **Settings → Robot → Natural motion**, choose Off, Subtle, Normal, or Lively. Actual human speech and explicit commands take priority. Ambient body motion stays small and safety-bounded.
 
-## 11. Memory and history
+## 11. Camera Attention
 
-Conversation history and durable extracted facts are stored locally in SQLite on the Android device. Realtime sessions can preload a bounded amount of relevant memory and perform targeted local memory search when deeper recall is needed.
+**Camera Attention** is optional and off by default. During an active interaction it can detect a visible face locally, direct the on-screen eyes toward it, make bounded head/body recentering corrections, and perform a finite search when appropriate.
 
-My LOOI does not require a companion backend for normal operation.
+Camera Attention is not permanent surveillance and does not autonomously drive forward toward a person. Its face-analysis frames remain local in memory and are not uploaded by My LOOI. This is separate from the explicit user-requested visual still described above.
 
-## 12. Backup and restore
+## 12. Face appearance
 
-In **Settings → Memory backup**, select a folder using Android's system document picker. You can then:
+Open **Settings → Appearance** to choose a face style and color palette independently. Current styles include Classic, Soft, Playful, Cap, Cowboy, Bandana and Sharp.
 
-- create a backup;
-- restore from the selected folder;
-- forget/change the selected folder.
 
-The app uses the Android system folder-access mechanism rather than requesting direct access to a Google Drive account.
+## 13. Memory and history
 
-## 13. Diagnostics
+Conversation history and durable extracted facts are stored locally in SQLite. Realtime sessions can preload bounded relevant memory and use targeted local search for deeper recall. My LOOI does not require a companion backend for normal operation.
 
-In **Settings → Diagnostics** you can:
+## 14. Backup and restore
 
-- share a diagnostic ZIP through the Android share sheet;
-- choose a persistent local Android Documents/SAF folder and save diagnostics there;
-- clear stored diagnostic events.
+Open **Settings → Advanced → Memory and backup**, then select a folder through Android's system document picker. You can create a backup, restore it, or forget/change the selected folder.
 
-Normal diagnostics do not retain microphone WAV recordings. Camera frames are not included.
+## 15. Diagnostics
 
-When reporting a voice or movement issue, a diagnostic ZIP recorded immediately after a reproducible test is especially useful.
+Open **Settings → Advanced → Diagnostics** to share a diagnostic ZIP, choose a persistent SAF folder and save diagnostics there, or clear diagnostic events.
 
-## 14. Updates
+Normal diagnostics do not retain microphone WAV recordings or visual-look image bytes. When reporting a reproducible problem, export diagnostics immediately after the test.
 
-My LOOI can check GitHub Releases for updates from **Settings → Updates**. The release flow verifies the expected package/version/checksum/signing identity before handing the APK to Android for installation.
+## 16. Updates
 
-If Android blocks an APK installation, use the provided **Install settings** shortcut and allow installation from the relevant source only if you trust the release you downloaded.
+My LOOI can check GitHub Releases from **Settings → Updates**, verify the expected package/version/checksum/signing identity, and hand the APK to Android's installer.
 
-## 15. Privacy summary
+## 17. Privacy summary
 
 - OpenAI Realtime audio is sent to OpenAI only while a Realtime conversation is active.
 - The OpenAI API key is stored in Android SecureStore.
 - Conversation history and durable memory are local by default.
 - Backgrounding the app or turning the screen off triggers a hard sensitive-runtime suspend.
-- Camera Attention processing is local-only and does not retain frames.
+- Camera Attention face-analysis frames remain local-only.
+- An explicit visual-look still is sent only after an addressed user request and is not stored by My LOOI as a photo or diagnostic payload.
 - Diagnostic export is manual and user-triggered.
 
-See `PRIVACY.md` in the project repository for the detailed privacy policy.
+See `PRIVACY.md` for the detailed privacy policy.
 
-## 16. Safety summary
+## 18. Safety summary
 
-- Say **`Стоп` / `Stop`** at any time to use the emergency STOP path.
-- Address ordinary physical commands to the robot explicitly.
-- Do not use overly broad custom movement phrases.
+- Say **`Стоп` / `Stop`** at any time for the emergency STOP path.
+- Address ordinary physical commands explicitly.
 - Movement remains bounded and protected by BLE/deadman/cliff checks.
+- Explicit visual look does not grant the LLM unrestricted movement control.
 - Camera Attention never adds autonomous forward/backward person-following.
-- The custom-phrase test checks parsing only and never moves the robot.
-
-## 17. Useful first things to try
-
-After setup, a simple acceptance sequence is:
-
-1. Have a short normal conversation.
-2. Interrupt LOOI while it is speaking to test barge-in.
-3. Say `Стоп` and verify an immediate emergency stop response.
-4. Say an addressed command such as `Луи, кивни` or `LOOI, turn left`.
-5. Enable Camera Attention and move slightly left/right to see the eyes follow before physical recentering is necessary.
-6. Try a different face style/palette.
-7. Add one custom deterministic phrase and verify it with the non-moving phrase tester.
-8. Select a backup folder and create a memory backup.
+- The custom-phrase test checks parsing only and never moves the robot or captures an image.
 
 ---
 
 My LOOI is community-developed and is not affiliated with or endorsed by the LOOI robot manufacturer.
+
+## Performance diagnostics
+
+Diagnostic ZIP exports include performance/memory snapshots and previous Android process-exit reasons when supported. This is intended to help diagnose freezes, ANRs and low-memory kills even when ADB is unavailable.

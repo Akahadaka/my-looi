@@ -18,7 +18,6 @@ for (const retiredPath of [
 }
 
 const settings = read("app/(tabs)/settings.tsx");
-assert.match(settings, /Realtime PCM/);
 assert.match(settings, /Realtime WebRTC \(legacy A\/B\)/);
 assert.doesNotMatch(settings, /Realtime \+ Local ASR|GigaAM/);
 

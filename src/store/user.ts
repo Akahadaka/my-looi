@@ -43,6 +43,20 @@ export type FaceSkinId = "classic" | "soft" | "pixel" | "spark";
 export type FaceStyleId = "classic" | "soft" | "playful" | "fringe" | "sharp" | "cowboy" | "bandana";
 export type FacePaletteId = "cyan" | "rose" | "lime" | "amber" | "violet";
 
+export type VoiceOutputGain = 1 | 1.15 | 1.3 | 1.45;
+export type SpeechGender = "masculine" | "feminine";
+
+export function normalizeSpeechGender(value: unknown): SpeechGender {
+  return value === "feminine" ? "feminine" : "masculine";
+}
+
+
+export function normalizeVoiceOutputGain(value: unknown): VoiceOutputGain {
+  const gain = Number(value);
+  return gain === 1.15 || gain === 1.3 || gain === 1.45 ? gain : 1;
+}
+
+
 export function normalizeFaceSkinId(value: unknown): FaceSkinId {
   return value === "soft" || value === "pixel" || value === "spark" ? value : "classic";
 }
@@ -77,7 +91,8 @@ export type CustomVoiceCommandAction =
   | "turn_around"
   | "nod"
   | "dance"
-  | "sleep";
+  | "sleep"
+  | "look_here";
 
 export type CustomVoiceCommandPhrase = {
   id: string;
@@ -89,7 +104,7 @@ export type CustomVoiceCommandMap = Record<CustomVoiceCommandAction, CustomVoice
 
 export const EMPTY_CUSTOM_VOICE_COMMANDS: CustomVoiceCommandMap = {
   emergency_stop: [], forward: [], backward: [], left: [], right: [],
-  turn_around: [], nod: [], dance: [], sleep: [],
+  turn_around: [], nod: [], dance: [], sleep: [], look_here: [],
 };
 
 function normalizePhraseList(value: unknown): CustomVoiceCommandPhrase[] {
@@ -122,6 +137,7 @@ function normalizeCustomVoiceCommands(value: unknown): CustomVoiceCommandMap {
     nod: normalizePhraseList(src.nod),
     dance: normalizePhraseList(src.dance),
     sleep: normalizePhraseList(src.sleep),
+    look_here: normalizePhraseList(src.look_here),
   };
 }
 
@@ -165,6 +181,10 @@ export type UserPreferences = {
   ttsVoiceId: string;
   ttsStyleId: TtsStyleId;
   ttsSpeed: number;
+  /** Optional local gain applied only to assistant playback PCM. 1.0 preserves the accepted baseline. */
+  voiceOutputGain: VoiceOutputGain;
+  /** Grammatical self-reference gender for gendered languages; independent from voice and character. */
+  speechGender: SpeechGender;
   wakeWordEnabled: boolean;
   /** Low-priority active-idle physical motion: off, head-only subtle, or normal with safe micro-pivots. */
   ambientMotionLevel: AmbientMotionLevel;
@@ -216,7 +236,7 @@ interface UserState {
 }
 
 type StoredPreferences = {
-  version: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
+  version: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17;
   preferences: UserPreferences;
 };
 
@@ -232,6 +252,8 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   ttsVoiceId: DEFAULT_TTS_VOICE_ID,
   ttsStyleId: DEFAULT_TTS_STYLE_ID,
   ttsSpeed: DEFAULT_TTS_SPEED,
+  voiceOutputGain: 1,
+  speechGender: "masculine",
   wakeWordEnabled: true,
   ambientMotionLevel: "normal",
   cameraAttentionEnabled: false,
@@ -279,7 +301,10 @@ function loadPreferences(): UserPreferences {
           ? preferences.ttsStyleId
           : DEFAULT_TTS_STYLE_ID,
       ttsSpeed: normalizeTtsSpeed(Number(preferences.ttsSpeed)),
-      wakeWordEnabled: preferences.wakeWordEnabled !== false,
+      voiceOutputGain: normalizeVoiceOutputGain((preferences as Partial<UserPreferences>).voiceOutputGain),
+      speechGender: normalizeSpeechGender((preferences as Partial<UserPreferences>).speechGender),
+      // v2.1.143 removes the user-facing toggle. Addressed wake is now always on.
+      wakeWordEnabled: true,
       ambientMotionLevel: normalizeAmbientMotionLevel(
         (preferences as Partial<UserPreferences>).ambientMotionLevel
       ),
@@ -312,12 +337,16 @@ function loadPreferences(): UserPreferences {
       (preferences as Partial<UserPreferences>).realtimeModelId !== normalized.realtimeModelId ||
       preferences.ttsVoiceId !== normalized.ttsVoiceId ||
       preferences.ttsStyleId !== normalized.ttsStyleId ||
+      (preferences as Partial<UserPreferences>).voiceOutputGain !== normalized.voiceOutputGain ||
+      (preferences as Partial<UserPreferences>).speechGender !== normalized.speechGender ||
+      (preferences as Partial<UserPreferences>).wakeWordEnabled !== true ||
       (preferences as Partial<UserPreferences>).ambientMotionLevel !== normalized.ambientMotionLevel ||
       (preferences as Partial<UserPreferences>).cameraAttentionEnabled !== normalized.cameraAttentionEnabled ||
       (preferences as Partial<UserPreferences>).faceSkin !== normalized.faceSkin ||
       (preferences as Partial<UserPreferences>).faceStyle !== normalized.faceStyle ||
       (preferences as Partial<UserPreferences>).facePalette !== normalized.facePalette ||
-      stored.version !== 12 ||
+      Object.prototype.hasOwnProperty.call(preferences, "character2Id") ||
+      stored.version !== 17 ||
       (preferences as Partial<UserPreferences>).conversationMode !== normalized.conversationMode ||
       Object.prototype.hasOwnProperty.call(preferences, "memoryBackend") ||
       Object.prototype.hasOwnProperty.call(preferences, "cameraEnabled") ||
@@ -333,7 +362,7 @@ function loadPreferences(): UserPreferences {
 }
 
 function savePreferences(preferences: UserPreferences): void {
-  const payload: StoredPreferences = { version: 12, preferences };
+  const payload: StoredPreferences = { version: 17, preferences };
   preferencesStorage.set(USER_PREFERENCES_KEY, JSON.stringify(payload));
 }
 
@@ -374,6 +403,15 @@ export const useUserStore = create<UserState>((set) => ({
           prefs.ttsSpeed === undefined
             ? state.preferences.ttsSpeed
             : normalizeTtsSpeed(prefs.ttsSpeed),
+        voiceOutputGain:
+          prefs.voiceOutputGain === undefined
+            ? state.preferences.voiceOutputGain
+            : normalizeVoiceOutputGain(prefs.voiceOutputGain),
+        speechGender:
+          prefs.speechGender === undefined
+            ? state.preferences.speechGender
+            : normalizeSpeechGender(prefs.speechGender),
+        wakeWordEnabled: true,
         ttsVoiceId:
           prefs.ttsVoiceId && isSupportedRealtimeVoiceId(prefs.ttsVoiceId)
             ? prefs.ttsVoiceId

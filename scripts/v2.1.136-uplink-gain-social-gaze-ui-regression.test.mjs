@@ -5,9 +5,10 @@ const read = (path) => fs.readFileSync(path, "utf8");
 const pkg = JSON.parse(read("package.json"));
 const app = JSON.parse(read("app.json"));
 
-assert.equal(pkg.version, "2.1.136");
-assert.equal(app.expo.version, "2.1.136");
-assert.equal(app.expo.android.versionCode, 136);
+const patchVersion = Number(pkg.version.split(".")[2]);
+assert.ok(Number.isInteger(patchVersion) && patchVersion >= 136);
+assert.equal(app.expo.version, pkg.version);
+assert.ok(app.expo.android.versionCode >= 136);
 
 const realtime = read("src/voice/realtime-config.ts");
 assert.match(realtime, /type: "server_vad"[\s\S]*threshold: 0\.15,[\s\S]*prefix_padding_ms: 500,[\s\S]*silence_duration_ms: 1000,/);

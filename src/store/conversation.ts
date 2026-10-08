@@ -10,6 +10,7 @@ export type NewChatMessage = Omit<ChatMessage, "id" | "timestamp"> & {
 };
 
 export type RealtimeReadiness = "idle" | "preparing-microphone" | "connecting" | "ready" | "microphone-error" | "error";
+export type RealtimeIssue = "no_credits" | "invalid_key" | "network_error" | "service_error" | null;
 
 interface ConversationState {
   activeSessionId: string | null;
@@ -20,6 +21,7 @@ interface ConversationState {
   isUserSpeaking: boolean;
   isSpeaking: boolean;
   realtimeReadiness: RealtimeReadiness;
+  realtimeIssue: RealtimeIssue;
   currentTranscript: string;
   streamingText: string;
   overlayVisible: boolean;
@@ -34,6 +36,7 @@ interface ConversationState {
   setUserSpeaking: (speaking: boolean) => void;
   setSpeaking: (speaking: boolean) => void;
   setRealtimeReadiness: (readiness: RealtimeReadiness) => void;
+  setRealtimeIssue: (issue: RealtimeIssue) => void;
   setCurrentTranscript: (transcript: string) => void;
   setStreamingText: (text: string) => void;
   appendStreamingText: (text: string) => void;
@@ -60,6 +63,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
   isUserSpeaking: false,
   isSpeaking: false,
   realtimeReadiness: "idle",
+  realtimeIssue: null,
   currentTranscript: "",
   streamingText: "",
   overlayVisible: false,
@@ -111,6 +115,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
       overlayVisible: isSpeaking ? true : state.overlayVisible,
     })),
   setRealtimeReadiness: (realtimeReadiness) => set({ realtimeReadiness }),
+  setRealtimeIssue: (realtimeIssue) => set((state) => ({ realtimeIssue, overlayVisible: realtimeIssue ? true : state.overlayVisible })),
   setCurrentTranscript: (currentTranscript) =>
     set((state) => ({
       currentTranscript,
@@ -137,6 +142,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
       currentTranscript: "",
       streamingText: "",
       realtimeReadiness: "idle",
+      realtimeIssue: null,
       isProcessing: false,
       isListening: false,
       isUserSpeaking: false,

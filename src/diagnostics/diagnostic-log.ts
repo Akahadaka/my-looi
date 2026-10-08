@@ -18,12 +18,14 @@ export type DiagnosticCategory =
   | "notification"
   | "calendar"
   | "character"
+  | "vision"
   | "navigation"
   | "memory"
   | "realtime"
   | "robot"
   | "update"
-  | "diagnostic";
+  | "diagnostic"
+  | "performance";
 
 export type DiagnosticValue = string | number | boolean | null | undefined;
 export type DiagnosticDetails = Record<string, DiagnosticValue>;

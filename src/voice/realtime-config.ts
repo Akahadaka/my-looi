@@ -15,7 +15,7 @@ export function resolveRealtimeVoice(ttsVoiceId: string): string {
 }
 
 export function buildRealtimeInstructions(
-  preferences: Pick<UserPreferences, "language" | "listeningLanguage" | "robotName" | "robotAddressAliases" | "robotAddressRecognitionAliases">,
+  preferences: Pick<UserPreferences, "language" | "listeningLanguage" | "speechGender" | "robotName" | "robotAddressAliases" | "robotAddressRecognitionAliases">,
   previousSummary?: string,
   memoryContext?: string
 ): string {
@@ -26,6 +26,10 @@ export function buildRealtimeInstructions(
     ? "Ukrainian"
     : preferences.listeningLanguage === "en" ? "English" : "Russian";
   const robotName = preferences.robotName?.trim() || "Луи";
+  const speechGender = preferences.speechGender === "feminine" ? "feminine" : "masculine";
+  const grammarInstruction = speechGender === "feminine"
+    ? "When speaking a language with grammatical gender, refer to yourself in feminine grammatical forms. In Russian use forms such as «я увидела», «я поняла», «я готова»; in Ukrainian use forms such as «я побачила», «я зрозуміла», «я готова». Do not change the human user's gender from this setting."
+    : "When speaking a language with grammatical gender, refer to yourself in masculine grammatical forms. In Russian use forms such as «я увидел», «я понял», «я готов»; in Ukrainian use forms such as «я побачив», «я зрозумів», «я готовий». Do not change the human user's gender from this setting.";
   const robotAliases = Array.isArray(preferences.robotAddressAliases) ? preferences.robotAddressAliases : ["LOOI", "Луї", "Робот", "Robot"];
   const recognitionAliases = Array.isArray(preferences.robotAddressRecognitionAliases) ? preferences.robotAddressRecognitionAliases : [];
   const summary = previousSummary?.trim()
@@ -39,6 +43,7 @@ export function buildRealtimeInstructions(
     "You are LOOI, a small physical conversational robot with long-term memory.",
     `Your current primary spoken name is ${robotName}. Normal direct-address aliases include ${robotAliases.join(", ") || "LOOI"}. Speech-recognition aliases may also include ${recognitionAliases.join(", ") || "none"}. Макс / Max remains an accepted nickname for backward compatibility. Every one of these names or recognition variants refers to YOU, the robot, never to the human user. Treat vocatives such as “Спасибо, Луи”, “Луи, как дела?”, “Привет, Бобик”, “Бобик, как твои дела?”, “Макс, ты меня слышишь?” and equivalent forms as the human addressing YOU. Never address the human as Луи, LOOI, Луї, Бобик, Макс, Max, Робот, Robot, ${robotName}, or any configured/recognition robot alias. Never invent a human personal name from an address token. Use a personal name for the human only when that human name is explicitly and reliably known from memory or conversation context. If the user addresses you with any accepted alias or recognition variant, accept it naturally. Do not correct them back to ${robotName}, do not say “I am ${robotName}” merely because another alias was used, and never infer that an alias is the user's name. Only discuss your primary name if the user explicitly asks about your name or naming.`,
     "The user is speaking by voice. Be lively, warm, curious, concise, and natural.",
+    grammarInstruction,
     `The app response-language setting is the default language for normal replies: ${responseLanguage}. Do not change the persistent language merely because the user happens to speak another language.`,
     `The expected input/listening language is ${inputLanguage}. Interpret ambiguous speech as ${inputLanguage}.`,
     "Language-learning requests are an explicit exception to the default reply language: if the user asks for a translation, pronunciation, correction, comparison, example, or asks you to say a specific phrase in another language, directly use that requested language for the requested content without changing persistent language settings. Keep any surrounding explanation in the default reply language unless the user asks otherwise.",
@@ -105,7 +110,7 @@ function buildRealtimeTools(): Record<string, unknown>[] {
 }
 
 function buildRealtimeSessionBase(
-  preferences: Pick<UserPreferences, "language" | "listeningLanguage" | "realtimeModelId" | "ttsVoiceId" | "ttsSpeed" | "robotName" | "robotAddressAliases" | "robotAddressRecognitionAliases">,
+  preferences: Pick<UserPreferences, "language" | "listeningLanguage" | "realtimeModelId" | "ttsVoiceId" | "ttsSpeed" | "speechGender" | "robotName" | "robotAddressAliases" | "robotAddressRecognitionAliases">,
   previousSummary?: string,
   memoryContext?: string
 ): Record<string, unknown> {
@@ -123,7 +128,7 @@ function buildRealtimeSessionBase(
 }
 
 export function buildRealtimeSessionUpdate(
-  preferences: Pick<UserPreferences, "language" | "listeningLanguage" | "realtimeModelId" | "ttsVoiceId" | "ttsSpeed" | "robotName" | "robotAddressAliases" | "robotAddressRecognitionAliases">,
+  preferences: Pick<UserPreferences, "language" | "listeningLanguage" | "realtimeModelId" | "ttsVoiceId" | "ttsSpeed" | "speechGender" | "robotName" | "robotAddressAliases" | "robotAddressRecognitionAliases">,
   previousSummary?: string,
   memoryContext?: string
 ): Record<string, unknown> {

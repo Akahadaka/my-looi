@@ -42,6 +42,9 @@ export type VoskModelReadyEvent = {
   language: string;
   assetDir: string;
   loadMs: number;
+  assetCopyMs: number;
+  modelLoadMs: number;
+  recognizerCreateMs: number;
   cached: boolean;
   sessionId: number;
   resetGeneration: number;
