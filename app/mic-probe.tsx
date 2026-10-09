@@ -456,17 +456,22 @@ function LevelBar({ label, db }: { label: string; db: number }) {
   </View>;
 }
 
+/**
+ * Drawn from the viewer's side: the screen is LOOI's face looking at the user, so
+ * LOOI's right (positive bearing) appears on the left of the screen, like a mirror.
+ */
 function BearingGauge({ t, bearingDeg }: { t: Translate; bearingDeg: number | null }) {
   const clamped = bearingDeg === null ? 0 : Math.max(-GAUGE_MAX_DEG, Math.min(GAUGE_MAX_DEG, bearingDeg));
+  const markerPct = ((GAUGE_MAX_DEG - clamped) / (2 * GAUGE_MAX_DEG)) * 100;
   return <View>
     <View style={styles.gaugeTrack}>
       <View style={styles.gaugeCentre} />
-      {bearingDeg !== null ? <View style={[styles.gaugeMarker, { left: `${((clamped + GAUGE_MAX_DEG) / (2 * GAUGE_MAX_DEG)) * 100}%` }]} /> : null}
+      {bearingDeg !== null ? <View style={[styles.gaugeMarker, { left: `${markerPct}%` }]} /> : null}
     </View>
     <View style={styles.gaugeScale}>
-      <Text style={[styles.help, styles.gaugeEnd]}>{t("micProbe.sideLeft")}</Text>
+      <Text style={[styles.help, styles.gaugeEnd]}>{t("micProbe.sideRight")}</Text>
       <Text style={styles.help}>0°</Text>
-      <Text style={[styles.help, styles.gaugeEnd, styles.gaugeEndRight]}>{t("micProbe.sideRight")}</Text>
+      <Text style={[styles.help, styles.gaugeEnd, styles.gaugeEndRight]}>{t("micProbe.sideLeft")}</Text>
     </View>
   </View>;
 }
