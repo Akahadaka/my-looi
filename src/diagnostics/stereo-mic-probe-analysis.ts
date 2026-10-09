@@ -14,10 +14,11 @@ export const STEREO_PROBE_WARMUP_MS = 400;
 /** Recent frames (about 1.2 s at 10 Hz) used for the live verdict. */
 export const STEREO_PROBE_VERDICT_FRAMES = 12;
 
+/** UNPROCESSED first: it gives near-full-range bearings, whereas CAMCORDER compresses and biases them. */
 export const STEREO_PROBE_SOURCES: StereoProbeSource[] = [
-  "VOICE_COMMUNICATION",
   "UNPROCESSED",
   "CAMCORDER",
+  "VOICE_COMMUNICATION",
   "MIC",
   "VOICE_RECOGNITION",
 ];
@@ -69,7 +70,10 @@ export type StereoProbeRunSummary = {
   aecAvailable: boolean | null;
   aecEnabled: boolean | null;
   routedDevice: string | null;
-  medianBearingDeg: number | null;
+  /** Median robot-frame bearing (positive = robot's right) of the vote over the settled frames. */
+  medianRobotBearingDeg: number | null;
+  /** Mean vote share, in percent, over the settled frames that had at least one voiced window. */
+  voteSharePct: number | null;
   meanPeakRatio: number | null;
   meanCorrelation: number | null;
   voiceActivePct: number | null;
@@ -104,6 +108,7 @@ export function summariseProbeRun(
   const settled = allFrames.filter((frame) => frame.timestampMs - firstTimestamp >= STEREO_PROBE_WARMUP_MS);
   const frames = settled.length > 0 ? settled : allFrames;
   const voiced = frames.filter((frame) => frame.voiceActive);
+  const voteFrames = frames.filter((frame) => frame.voteCount > 0);
   const conversationLevels = frames
     .map((frame) => frame.conversationRms)
     .filter((value): value is number => value !== null);
@@ -121,7 +126,8 @@ export function summariseProbeRun(
     aecAvailable: started?.aec?.available ?? null,
     aecEnabled: started?.aec?.enabled ?? null,
     routedDevice: describeRoute(started),
-    medianBearingDeg: median(voiced.map((frame) => frame.bearingDeg).filter((value): value is number => value !== null)),
+    medianRobotBearingDeg: median(frames.map((frame) => frame.robotBearingDeg).filter((value): value is number => value !== null)),
+    voteSharePct: mean(voteFrames.map((frame) => frame.voteShare * 100)),
     meanPeakRatio: mean(voiced.map((frame) => frame.peakRatio)),
     meanCorrelation: mean(frames.map((frame) => frame.channelCorrelation)),
     voiceActivePct: frames.length > 0 ? Math.round((voiced.length / frames.length) * 100) : null,
@@ -156,7 +162,8 @@ export function runSummaryToDiagnosticDetails(summary: StereoProbeRunSummary): D
     aecAvailable: summary.aecAvailable,
     aecEnabled: summary.aecEnabled,
     routedDevice: summary.routedDevice,
-    medianBearingDeg: round(summary.medianBearingDeg, 1),
+    medianRobotBearingDeg: round(summary.medianRobotBearingDeg, 1),
+    voteSharePct: round(summary.voteSharePct, 0),
     meanPeakRatio: round(summary.meanPeakRatio, 2),
     meanCorrelation: round(summary.meanCorrelation, 4),
     voiceActivePct: summary.voiceActivePct,
@@ -193,24 +200,32 @@ export function capabilitiesToDiagnosticDetails(capabilities: StereoProbeCapabil
   };
 }
 
-export type SideCalibrationMapping = "negative-is-left" | "positive-is-left" | "inconclusive";
+export type SideCheckSide = "left" | "right";
+
+export type SideCheckResult = {
+  /** Median robot-frame bearing of the frames that had a trusted vote; null when there were none. */
+  medianRobotBearingDeg: number | null;
+  /** Number of frames with a trusted robot-frame bearing. */
+  samples: number;
+  /** True when LOOI's left read negative or LOOI's right read positive; null without a bearing. */
+  passed: boolean | null;
+};
 
 /**
- * Reads the bearing sign convention (positive = right channel first) against
- * what the user did. Speaking on the robot's LEFT that yields a negative
- * bearing means channel 0 sits on the robot's left, so negative = LEFT.
+ * Judges one "Check sides" capture. The bearing is already in the robot frame
+ * (positive = LOOI's right), so speaking from LOOI's left must read negative
+ * and from LOOI's right positive. Warm-up frames are dropped.
  */
-export function deriveSideMapping(
-  leftBearingDeg: number | null,
-  rightBearingDeg: number | null
-): SideCalibrationMapping {
-  const votes: Array<"negative-is-left" | "positive-is-left"> = [];
-  if (leftBearingDeg !== null && Math.abs(leftBearingDeg) >= 5) {
-    votes.push(leftBearingDeg < 0 ? "negative-is-left" : "positive-is-left");
-  }
-  if (rightBearingDeg !== null && Math.abs(rightBearingDeg) >= 5) {
-    votes.push(rightBearingDeg > 0 ? "negative-is-left" : "positive-is-left");
-  }
-  if (votes.length === 0) return "inconclusive";
-  return votes.every((vote) => vote === votes[0]) ? votes[0] : "inconclusive";
+export function evaluateSideCheck(side: SideCheckSide, frames: StereoProbeFrameEvent[]): SideCheckResult {
+  const firstTimestamp = frames.length > 0 ? frames[0].timestampMs : 0;
+  const bearings = frames
+    .filter((frame) => frame.timestampMs - firstTimestamp >= STEREO_PROBE_WARMUP_MS && frame.robotBearingDeg !== null)
+    .map((frame) => frame.robotBearingDeg as number);
+  const medianRobotBearingDeg = median(bearings);
+  if (medianRobotBearingDeg === null) return { medianRobotBearingDeg, samples: 0, passed: null };
+  return {
+    medianRobotBearingDeg,
+    samples: bearings.length,
+    passed: side === "left" ? medianRobotBearingDeg < 0 : medianRobotBearingDeg > 0,
+  };
 }

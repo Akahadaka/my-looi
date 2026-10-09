@@ -72,6 +72,14 @@ internal class ComplexFft(private val size: Int) {
   }
 }
 
+/**
+ * Speech band used for the cross-correlation. Below 300 Hz the two microphones
+ * hear nearly the same phase (hum, handling rumble) and above 4 kHz the 0.143 m
+ * spacing aliases, so neither carries usable delay information for a voice.
+ */
+internal const val GCC_BAND_LOW_HZ = 300.0
+internal const val GCC_BAND_HIGH_HZ = 4000.0
+
 /** Sub-sample delay between the two channels and a confidence measure. */
 internal class GccPhatResult(
   /**
@@ -86,14 +94,31 @@ internal class GccPhatResult(
 /**
  * GCC-PHAT time-difference-of-arrival estimator for one stereo window.
  *
- * The cross-spectrum X_L·conj(X_R) is normalised to unit magnitude (PHAT) and
+ * The cross-spectrum X_L·conj(X_R) is normalised to unit magnitude (PHAT), the
+ * bins outside [lowHz]..[highHz] are zeroed, and the result is
  * inverse-transformed; the peak lag within +/- maxLag is refined with a
  * parabolic fit. Each channel has its mean removed and a Hann window applied
  * before zero-padding to [fftSize], which limits spectral leakage that PHAT
  * would otherwise amplify.
+ *
+ * PHAT gives every bin equal weight, so on the full band the many bins that
+ * hold only noise swamp the speech bins and the peak ratio collapses to about
+ * 3. Band-limiting after the normalisation keeps the whitening but only counts
+ * the speech band.
  */
-internal class GccPhatEstimator(private val windowFrames: Int, private val fftSize: Int) {
+internal class GccPhatEstimator(
+  private val windowFrames: Int,
+  private val fftSize: Int,
+  sampleRate: Int,
+  lowHz: Double = GCC_BAND_LOW_HZ,
+  highHz: Double = GCC_BAND_HIGH_HZ
+) {
   private val fft = ComplexFft(fftSize)
+  /** 1.0 for bins inside the band (and their mirrored negative-frequency twins), else 0.0. */
+  private val bandMask = DoubleArray(fftSize) { bin ->
+    val frequency = minOf(bin, fftSize - bin).toDouble() * sampleRate / fftSize
+    if (frequency >= lowHz && frequency <= highHz) 1.0 else 0.0
+  }
   private val hann = DoubleArray(windowFrames) { 0.5 - 0.5 * cos(2.0 * PI * it / (windowFrames - 1)) }
   private val leftRe = DoubleArray(fftSize)
   private val leftIm = DoubleArray(fftSize)
@@ -127,13 +152,13 @@ internal class GccPhatEstimator(private val windowFrames: Int, private val fftSi
     fft.transform(leftRe, leftIm, inverse = false)
     fft.transform(rightRe, rightIm, inverse = false)
 
-    // Phase transform: X_L * conj(X_R) / (|X_L * conj(X_R)| + eps).
+    // Phase transform: X_L * conj(X_R) / (|X_L * conj(X_R)| + eps), zeroed outside the speech band.
     for (bin in 0 until fftSize) {
       val re = leftRe[bin] * rightRe[bin] + leftIm[bin] * rightIm[bin]
       val im = leftIm[bin] * rightRe[bin] - leftRe[bin] * rightIm[bin]
       val magnitude = sqrt(re * re + im * im) + 1e-12
-      leftRe[bin] = re / magnitude
-      leftIm[bin] = im / magnitude
+      leftRe[bin] = re / magnitude * bandMask[bin]
+      leftIm[bin] = im / magnitude * bandMask[bin]
     }
     fft.transform(leftRe, leftIm, inverse = true)
 

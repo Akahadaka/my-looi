@@ -13,6 +13,7 @@ import android.media.audiofx.AcousticEchoCanceler
 import android.os.Build
 import android.os.Process
 import android.os.SystemClock
+import android.view.Surface
 import androidx.core.content.ContextCompat
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
@@ -24,6 +25,7 @@ import kotlin.math.asin
 import kotlin.math.ceil
 import kotlin.math.log10
 import kotlin.math.max
+import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 /**
@@ -31,16 +33,38 @@ import kotlin.math.sqrt
  * microphones, does that survive a concurrent VOICE_COMMUNICATION + AEC mono
  * capture (the conversation pipeline), and is a GCC-PHAT bearing stable?
  *
- * Bearing sign convention (used by every `bearingDeg` / `tdoa*` value):
- * the time difference is the delay of the LEFT channel relative to the RIGHT
- * channel (channel 0 = left, channel 1 = right in the interleaved AudioRecord
- * data). A POSITIVE tdoa/bearing means sound reached the RIGHT channel first,
- * i.e. the source is on the right-channel side. Zero is straight ahead and
- * +/-90 degrees is end-fire along the microphone axis. Which physical side of
- * the robot "right channel" is depends on the phone orientation, so the
- * screen offers a left/right calibration step.
+ * Raw bearing sign convention (every `instantBearingDeg` / `rawBearingDeg` /
+ * `tdoaUs` / `voteTdoaUs` value): the time difference is the delay of channel 0
+ * relative to channel 1 in the interleaved AudioRecord data.
+ * A POSITIVE tdoa/bearing means sound reached the RIGHT channel first (channel 1),
+ * i.e. the source is on the channel-1 side. Zero is broadside and +/-90 degrees
+ * is end-fire along the microphone axis.
  *
  * bearing = asin(clamp(tdoa * 343 / micSpacing, -1, 1)), in degrees.
+ *
+ * Robot frame (`robotBearingDeg`): positive means the ROBOT'S RIGHT, negative
+ * the robot's left, seen from LOOI's own point of view. The phone sits in the
+ * robot in landscape as its face, so the mapping depends on the display
+ * rotation read at start():
+ *  - ROTATION_90: channel 1 is the robot's right, so robot = raw.
+ *  - ROTATION_270: the phone is upside down, so robot = -raw.
+ *  - ROTATION_0 / ROTATION_180 (portrait): the microphone axis points up and
+ *    down rather than left and right, so there is no left/right bearing;
+ *    robotBearingDeg is null and `robotFrameAvailable` is false.
+ *
+ * Channel order assumption (reported as `channelOrderAssumed: "bottom-first"`):
+ * channel 0 is the BOTTOM (USB-end) microphone and channel 1 the top one. In
+ * ROTATION_90 the bottom end of the phone is the robot's left, hence the
+ * mapping above. This holds on the tested Pixel 10 Pro XL; other models may
+ * order their channels differently and would need the "Check sides" step on
+ * the screen to confirm it.
+ *
+ * Vote: a single window's GCC-PHAT peak is weak, so the bearing is taken from
+ * the MODE of the integer peak lags over the last [VOTE_WINDOW_SECONDS] of
+ * voiced windows (see [LagVoteBuffer]). `rawBearingDeg` / `robotBearingDeg` are
+ * null until the vote has at least [VOTE_MIN_COUNT] voiced windows of which at
+ * least [VOTE_MIN_SHARE] agree (within +/- 1 sample) with the mode.
+ * `instantBearingDeg`, `peakRatio` and `tdoaUs` stay as per-frame diagnostics.
  */
 class StereoMicProbeModule : Module() {
   companion object {
@@ -56,15 +80,24 @@ class StereoMicProbeModule : Module() {
     private const val EMIT_INTERVAL_MS = 100L
     private const val SILENCE_POLL_MS = 500L
     private const val VOICE_MARGIN_DB = 9.0
-    private const val VOICE_MIN_ABSOLUTE_DB = -70.0
-    private const val NOISE_FLOOR_RISE_DB_PER_SECOND = 0.5
+    // UNPROCESSED speech sits around -55 dBFS, so this must stay well below that.
+    private const val VOICE_MIN_ABSOLUTE_DB = -75.0
+    private const val NOISE_FLOOR_RISE_DB_PER_SECOND = 3.0
+    /** Windows whose RMS is below this on both channels are exact digital zeros (AudioRecord start-up). */
+    private const val DIGITAL_SILENCE_RMS = 1e-5
+    private const val VOTE_WINDOW_SECONDS = 1.0
+    private const val VOTE_MIN_COUNT = 5
+    private const val VOTE_MIN_SHARE = 0.3
     private const val NOISE_FLOOR_MAX_AGE_MS = 120_000L
     private const val MIN_PEAK_RATIO = 3.0
     private const val LEVEL_FLOOR_DB = -120.0
     private const val MAX_CONSECUTIVE_READ_ERRORS = 25
     private const val MAX_WAV_SECONDS = 30.0
 
-    /** Noise floors survive stop/start so a matrix run does not re-learn it while the user is already speaking. */
+    /**
+     * Noise floors survive stop/start so a matrix run does not re-learn it while the user is already speaking.
+     * Digital-silence windows never reach the follower, so a stored floor is never one learned from zeros.
+     */
     private val noiseFloors = ConcurrentHashMap<String, Pair<Double, Long>>()
   }
 
@@ -232,11 +265,24 @@ class StereoMicProbeModule : Module() {
     val sampleRate: Int,
     val simulateConversation: Boolean,
     val micSpacingM: Double,
-    val recordWavSeconds: Double
+    val recordWavSeconds: Double,
+    /** Display rotation in degrees (0/90/180/270) at start(); decides the robot frame. */
+    val displayRotationDegrees: Int
   )
 
+  @Suppress("DEPRECATION")
+  private fun readDisplayRotationDegrees(): Int {
+    val activity = appContext.currentActivity
+    return when (activity?.windowManager?.defaultDisplay?.rotation ?: Surface.ROTATION_0) {
+      Surface.ROTATION_90 -> 90
+      Surface.ROTATION_180 -> 180
+      Surface.ROTATION_270 -> 270
+      else -> 0
+    }
+  }
+
   private fun parseOptions(options: Map<String, Any?>): ProbeConfig {
-    val sourceName = (options["source"] as? String) ?: "VOICE_COMMUNICATION"
+    val sourceName = (options["source"] as? String) ?: "UNPROCESSED"
     val sourceId = when (sourceName) {
       "VOICE_COMMUNICATION" -> MediaRecorder.AudioSource.VOICE_COMMUNICATION
       "UNPROCESSED" -> MediaRecorder.AudioSource.UNPROCESSED
@@ -258,7 +304,7 @@ class StereoMicProbeModule : Module() {
       ?.takeIf { it.isFinite() && it > 0.0 }
       ?.coerceAtMost(MAX_WAV_SECONDS)
       ?: 0.0
-    return ProbeConfig(sourceName, sourceId, sampleRate, simulate, spacing, recordWavSeconds)
+    return ProbeConfig(sourceName, sourceId, sampleRate, simulate, spacing, recordWavSeconds, readDisplayRotationDegrees())
   }
 
   @Synchronized private fun startProbe(options: Map<String, Any?>): Map<String, Any?> {
@@ -355,7 +401,9 @@ class StereoMicProbeModule : Module() {
     val tdoaUs: Double,
     val bearingDeg: Double,
     val peakRatio: Double,
-    val voiceActive: Boolean
+    val voiceActive: Boolean,
+    /** Both channels are exact digital zeros; the window is excluded from the noise floor and from voicing. */
+    val digitalSilence: Boolean
   )
 
   private fun toDb(rms: Double): Double = if (rms < 1e-6) LEVEL_FLOOR_DB else max(LEVEL_FLOOR_DB, 20.0 * log10(rms))
@@ -475,6 +523,8 @@ class StereoMicProbeModule : Module() {
         "channelCount" to stereoChannelCount,
         "audioSessionId" to record.audioSessionId,
         "micSpacingM" to config.micSpacingM,
+        "displayRotation" to config.displayRotationDegrees,
+        "channelOrderAssumed" to "bottom-first",
         "routedDevice" to routedDeviceMap(record),
         "aec" to stereoAec?.toMap(),
         "simulateConversationCapture" to config.simulateConversation,
@@ -658,9 +708,10 @@ class StereoMicProbeModule : Module() {
         val hop = ShortArray(HOP_FRAMES * channels)
         val left = DoubleArray(WINDOW_FRAMES)
         val right = DoubleArray(WINDOW_FRAMES)
-        val estimator = GccPhatEstimator(WINDOW_FRAMES, FFT_SIZE)
+        val estimator = GccPhatEstimator(WINDOW_FRAMES, FFT_SIZE, rate)
         val maxLag = ceil(config.micSpacingM / SPEED_OF_SOUND_MPS * rate).toInt() + 2
         val hopSeconds = HOP_FRAMES.toDouble() / rate
+        val votes = LagVoteBuffer(ceil(VOTE_WINDOW_SECONDS / hopSeconds).toInt(), maxLag)
 
         val floorKey = "${config.sourceName}@$rate"
         var noiseFloorDb = Double.NaN
@@ -711,7 +762,11 @@ class StereoMicProbeModule : Module() {
 
           val result = analyseWindow(left, right, channels >= 2, estimator, maxLag, rate, noiseFloorDb)
           pending.add(result)
-          noiseFloorDb = nextNoiseFloor(noiseFloorDb, max(toDb(result.rmsLeft), toDb(result.rmsRight)), hopSeconds)
+          votes.add(result.tdoaSamples.roundToInt(), result.voiceActive && channels >= 2)
+          // The zeros AudioRecord delivers at start would pin the follower at the bottom.
+          if (!result.digitalSilence) {
+            noiseFloorDb = nextNoiseFloor(noiseFloorDb, max(toDb(result.rmsLeft), toDb(result.rmsRight)), hopSeconds)
+          }
 
           val now = SystemClock.elapsedRealtime()
           if (now - lastSilencePollAt >= SILENCE_POLL_MS) {
@@ -721,7 +776,7 @@ class StereoMicProbeModule : Module() {
           if (now - lastEmitAt >= EMIT_INTERVAL_MS) {
             lastEmitAt = now
             if (!noiseFloorDb.isNaN()) noiseFloors[floorKey] = Pair(noiseFloorDb, now)
-            emitFrame(pending, noiseFloorDb)
+            emitFrame(pending, noiseFloorDb, votes.tally(), rate)
             pending.clear()
           }
         }
@@ -730,7 +785,7 @@ class StereoMicProbeModule : Module() {
       }
     }
 
-    /** Slow minimum follower: falls immediately to a new minimum, rises at 0.5 dB per second. */
+    /** Slow minimum follower: falls immediately to a new minimum, rises at [NOISE_FLOOR_RISE_DB_PER_SECOND] dB per second. */
     private fun nextNoiseFloor(current: Double, level: Double, hopSeconds: Double): Double {
       if (current.isNaN() || level < current) return level
       return minOf(level, current + NOISE_FLOOR_RISE_DB_PER_SECOND * hopSeconds)
@@ -779,12 +834,13 @@ class StereoMicProbeModule : Module() {
       val leftDb = toDb(rmsLeft)
       val rightDb = toDb(rmsRight)
       val hasEnergy = energyLeft > 1e-12 || energyRight > 1e-12
+      val digitalSilence = rmsLeft < DIGITAL_SILENCE_RMS && rmsRight < DIGITAL_SILENCE_RMS
       val identical = stereo && hasEnergy &&
         (exactlyEqual || (correlation > 0.9995 && abs(leftDb - rightDb) < 0.1))
 
       val level = max(leftDb, rightDb)
       val reference = if (noiseFloorDb.isNaN()) level else noiseFloorDb
-      val voiceActive = hasEnergy && level > VOICE_MIN_ABSOLUTE_DB && level > reference + VOICE_MARGIN_DB
+      val voiceActive = hasEnergy && !digitalSilence && level > VOICE_MIN_ABSOLUTE_DB && level > reference + VOICE_MARGIN_DB
 
       var tdoaSamples = 0.0
       var peakRatio = 0.0
@@ -798,16 +854,32 @@ class StereoMicProbeModule : Module() {
         val sine = (tdoaSamples / rate * SPEED_OF_SOUND_MPS / config.micSpacingM).coerceIn(-1.0, 1.0)
         bearing = Math.toDegrees(asin(sine))
       }
-      return WindowResult(rmsLeft, rmsRight, correlation, identical, tdoaSamples, tdoaUs, bearing, peakRatio, voiceActive)
+      return WindowResult(rmsLeft, rmsRight, correlation, identical, tdoaSamples, tdoaUs, bearing, peakRatio, voiceActive, digitalSilence)
     }
 
-    private fun emitFrame(windows: List<WindowResult>, noiseFloorDb: Double) {
+    /** Raw bearing in the robot frame (positive = robot's right), or null when the phone is not in landscape. */
+    private fun robotBearingOf(rawBearingDeg: Double): Double? = when (config.displayRotationDegrees) {
+      90 -> rawBearingDeg
+      270 -> -rawBearingDeg
+      else -> null
+    }
+
+    private fun emitFrame(windows: List<WindowResult>, noiseFloorDb: Double, vote: LagVoteResult, rate: Int) {
       if (windows.isEmpty()) return
       val meanSquareLeft = windows.sumOf { it.rmsLeft * it.rmsLeft } / windows.size
       val meanSquareRight = windows.sumOf { it.rmsRight * it.rmsRight } / windows.size
       val voiced = windows.filter { it.voiceActive && it.peakRatio > MIN_PEAK_RATIO }
       val confidenceSource = if (voiced.isNotEmpty()) voiced else windows
       val conversationDb = if (config.simulateConversation) drainConversationLevelDb() else null
+      val voteLag = vote.lagSamples
+      val voteTdoaUs = voteLag?.let { it.toDouble() / rate * 1_000_000.0 }
+      val rawBearingDeg = if (voteLag != null && vote.count >= VOTE_MIN_COUNT && vote.share >= VOTE_MIN_SHARE) {
+        val sine = (voteLag.toDouble() / rate * SPEED_OF_SOUND_MPS / config.micSpacingM).coerceIn(-1.0, 1.0)
+        Math.toDegrees(asin(sine))
+      } else {
+        null
+      }
+      val robotFrameAvailable = config.displayRotationDegrees == 90 || config.displayRotationDegrees == 270
       emit("onProbeFrame", mapOf(
         "timestampMs" to System.currentTimeMillis(),
         "rmsL" to toDb(sqrt(meanSquareLeft)),
@@ -816,9 +888,16 @@ class StereoMicProbeModule : Module() {
         "channelCorrelation" to windows.sumOf { it.correlation } / windows.size,
         "identicalChannels" to windows.any { it.identical },
         "voiceActive" to windows.any { it.voiceActive },
-        "bearingDeg" to if (voiced.isNotEmpty()) median(voiced.map { it.bearingDeg }) else null,
+        "instantBearingDeg" to if (voiced.isNotEmpty()) median(voiced.map { it.bearingDeg }) else null,
         "peakRatio" to confidenceSource.sumOf { it.peakRatio } / confidenceSource.size,
         "tdoaUs" to if (voiced.isNotEmpty()) median(voiced.map { it.tdoaUs }) else null,
+        "voteLagSamples" to voteLag,
+        "voteTdoaUs" to voteTdoaUs,
+        "voteShare" to vote.share,
+        "voteCount" to vote.count,
+        "rawBearingDeg" to rawBearingDeg,
+        "robotBearingDeg" to rawBearingDeg?.let { robotBearingOf(it) },
+        "robotFrameAvailable" to robotFrameAvailable,
         "noiseFloorDb" to if (noiseFloorDb.isNaN()) null else noiseFloorDb,
         "channelCount" to stereoChannelCount,
         "framesRead" to framesRead.get(),

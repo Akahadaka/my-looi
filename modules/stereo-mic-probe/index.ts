@@ -76,6 +76,10 @@ export type StereoProbeStartedEvent = {
   channelCount: number;
   audioSessionId: number;
   micSpacingM: number;
+  /** Display rotation at start in degrees. 90 and 270 are landscape; 0 and 180 have no robot frame. */
+  displayRotation: 0 | 90 | 180 | 270;
+  /** Channel 0 is assumed to be the bottom (USB-end) microphone; true on the tested Pixel 10 Pro XL. */
+  channelOrderAssumed: "bottom-first";
   routedDevice: StereoProbeRoutedDevice | null;
   aec: StereoProbeAecInfo | null;
   simulateConversationCapture: boolean;
@@ -90,8 +94,12 @@ export type StereoProbeStartedEvent = {
 };
 
 /**
- * Sign convention: positive `bearingDeg` / `tdoaUs` means sound reached the
- * RIGHT channel (channel 1) first, i.e. the source is on the right-channel side.
+ * Raw sign convention: positive `instantBearingDeg` / `rawBearingDeg` /
+ * `tdoaUs` / `voteTdoaUs` means sound reached channel 1 first.
+ *
+ * `robotBearingDeg` is that bearing in the robot frame: positive is the
+ * ROBOT'S RIGHT, negative the robot's left. It equals `rawBearingDeg` in
+ * ROTATION_90 and its negation in ROTATION_270, and is null in portrait.
  */
 export type StereoProbeFrameEvent = {
   timestampMs: number;
@@ -103,9 +111,23 @@ export type StereoProbeFrameEvent = {
   channelCorrelation: number;
   identicalChannels: boolean;
   voiceActive: boolean;
-  bearingDeg: number | null;
+  /** Median bearing of this frame's voiced windows; a noisy per-frame diagnostic, not the answer. */
+  instantBearingDeg: number | null;
   peakRatio: number;
   tdoaUs: number | null;
+  /** Mode of the integer peak lags over the last ~1 s of voiced windows; null when none were voiced. */
+  voteLagSamples: number | null;
+  voteTdoaUs: number | null;
+  /** Fraction of the voiced windows within +/-1 sample of the mode; 0 when none. */
+  voteShare: number;
+  /** Voiced windows counted by the vote. */
+  voteCount: number;
+  /** Bearing from the vote; null until it has enough agreeing voiced windows. */
+  rawBearingDeg: number | null;
+  /** Positive = robot's right. Null when the vote is not trusted or the robot frame is unavailable. */
+  robotBearingDeg: number | null;
+  /** False in portrait (ROTATION_0 / ROTATION_180), where the microphone axis is not left/right. */
+  robotFrameAvailable: boolean;
   noiseFloorDb: number | null;
   channelCount: number;
   framesRead: number;

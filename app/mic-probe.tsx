@@ -11,14 +11,15 @@ import { useUserStore } from "@/src/store/user";
 import { recordDiagnosticEvent } from "@/src/diagnostics/diagnostic-log";
 import {
   capabilitiesToDiagnosticDetails,
-  deriveSideMapping,
   deriveStereoVerdict,
-  median,
+  evaluateSideCheck,
   runSummaryToDiagnosticDetails,
   STEREO_PROBE_SOURCES,
   STEREO_PROBE_VERDICT_FRAMES,
   STEREO_PROBE_WARMUP_MS,
   summariseProbeRun,
+  type SideCheckResult,
+  type SideCheckSide,
   type StereoProbeRunSummary,
 } from "@/src/diagnostics/stereo-mic-probe-analysis";
 import {
@@ -37,13 +38,12 @@ import {
 const SAMPLE_RATES = [48000, 44100, 16000] as const;
 const MATRIX_RUN_MS = 4000;
 const MATRIX_GAP_MS = 600;
-const CALIBRATION_MS = 3000;
+const SIDE_CHECK_MS = 3000;
 const WAV_SECONDS = 5;
 const LEVEL_MIN_DB = -90;
 const GAUGE_MAX_DEG = 90;
 
-type ProbeMode = "idle" | "live" | "matrix" | "calibrate" | "record";
-type Side = "left" | "right";
+type ProbeMode = "idle" | "live" | "matrix" | "sideCheck" | "record";
 
 /** What the app's own capture looked like before the probe took the microphone. */
 type CapturePauseState = { appCaptureAllowed: boolean; feederWasRunning: boolean };
@@ -68,7 +68,7 @@ export default function MicProbeScreen() {
   const { t } = useUiText();
   const [capabilities, setCapabilities] = useState<StereoProbeCapabilities | null>(null);
   const [capabilitiesError, setCapabilitiesError] = useState<string | null>(null);
-  const [source, setSource] = useState<StereoProbeSource>("VOICE_COMMUNICATION");
+  const [source, setSource] = useState<StereoProbeSource>("UNPROCESSED");
   const [sampleRate, setSampleRate] = useState<number>(48000);
   const [simulateConversation, setSimulateConversation] = useState(false);
   const [mode, setMode] = useState<ProbeMode>("idle");
@@ -77,7 +77,7 @@ export default function MicProbeScreen() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [matrixRows, setMatrixRows] = useState<StereoProbeRunSummary[]>([]);
-  const [calibration, setCalibration] = useState<Record<Side, number | null | undefined>>({ left: undefined, right: undefined });
+  const [sideChecks, setSideChecks] = useState<Record<SideCheckSide, SideCheckResult | undefined>>({ left: undefined, right: undefined });
 
   const liveSessionRef = useRef<StereoProbeSession | null>(null);
   const abortRef = useRef(false);
@@ -140,7 +140,7 @@ export default function MicProbeScreen() {
     if (modeRef.current === "live") changeMode("idle");
   }, [changeMode]);
 
-  /** Stops whatever is running (live, matrix, calibration) and waits for the native probe to release the microphone. */
+  /** Stops whatever is running (live, matrix, side check) and waits for the native probe to release the microphone. */
   const stopEverything = useCallback(async () => {
     abortRef.current = true;
     await stopLive();
@@ -284,58 +284,52 @@ export default function MicProbeScreen() {
     }
   }, [changeMode, handleFrame, pauseAppCapture, t]);
 
-  const calibrateSide = useCallback(async (side: Side) => {
+  const checkSide = useCallback(async (side: SideCheckSide) => {
     if (modeRef.current !== "idle") return;
-    changeMode("calibrate");
+    changeMode("sideCheck");
     abortRef.current = false;
     setError(null);
     setRecentFrames([]);
     setStarted(null);
     const sideLabel = t(side === "left" ? "micProbe.sideLeft" : "micProbe.sideRight");
-    setMessage(t("micProbe.calibrating", { side: sideLabel }));
+    setMessage(t("micProbe.sideChecking", { side: sideLabel }));
     try {
       await pauseAppCapture();
       const current = settingsRef.current;
       const options = { source: current.source, sampleRate: current.sampleRate, simulateConversationCapture: false };
-      const result = await runStereoProbeCapture(options, CALIBRATION_MS, {
+      const result = await runStereoProbeCapture(options, SIDE_CHECK_MS, {
         onFrame: handleFrame,
         shouldAbort: () => abortRef.current,
       });
       if (abortRef.current) return;
-      const firstTimestamp = result.frames[0]?.timestampMs ?? 0;
-      const bearings = result.frames
-        .filter((frame) => frame.timestampMs - firstTimestamp >= STEREO_PROBE_WARMUP_MS && frame.voiceActive && frame.bearingDeg !== null)
-        .map((frame) => frame.bearingDeg as number);
-      const medianBearing = median(bearings);
-      const next = { ...calibration, [side]: medianBearing };
-      setCalibration(next);
-      const mapping = deriveSideMapping(next.left ?? null, next.right ?? null);
-      recordDiagnosticEvent("audio", "stereo-mic-probe-calibration", {
+      const check = evaluateSideCheck(side, result.frames);
+      setSideChecks((previous) => ({ ...previous, [side]: check }));
+      recordDiagnosticEvent("audio", "stereo-mic-probe-side-check", {
         side,
         source: options.source,
         sampleRate: options.sampleRate,
         opened: result.started !== null,
         channelCount: result.started?.channelCount ?? null,
-        medianBearingDeg: medianBearing === null ? null : Math.round(medianBearing * 10) / 10,
-        samples: bearings.length,
-        mapping,
+        displayRotation: result.started?.displayRotation ?? null,
+        medianRobotBearingDeg: check.medianRobotBearingDeg === null ? null : Math.round(check.medianRobotBearingDeg * 10) / 10,
+        samples: check.samples,
+        passed: check.passed,
         error: result.error,
       });
       if (result.error) setError(t("common.error", { message: result.error }));
-      setMessage(medianBearing === null
-        ? t("micProbe.calibrationNoVoice", { side: sideLabel })
-        : t("micProbe.calibrationResult", { side: sideLabel, bearing: medianBearing.toFixed(1), samples: bearings.length }));
+      setMessage(check.medianRobotBearingDeg === null
+        ? t("micProbe.sideCheckNoVoice", { side: sideLabel })
+        : t("micProbe.sideCheckResult", { mark: check.passed ? "✓" : "✗", side: sideLabel, bearing: check.medianRobotBearingDeg.toFixed(1), samples: check.samples }));
     } catch (reason) {
       setError(t("common.error", { message: errorMessage(reason) }));
     } finally {
       changeMode("idle");
     }
-  }, [calibration, changeMode, handleFrame, pauseAppCapture, t]);
+  }, [changeMode, handleFrame, pauseAppCapture, t]);
 
   const latest = recentFrames[recentFrames.length - 1] ?? null;
   const verdict = started || mode !== "idle" ? deriveStereoVerdict(started?.channelCount ?? (latest?.channelCount ?? null), recentFrames) : null;
   const busy = mode !== "idle";
-  const sideMapping = deriveSideMapping(calibration.left ?? null, calibration.right ?? null);
   const moduleAvailable = getStereoMicProbeModule() !== null;
 
   return <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
@@ -380,16 +374,20 @@ export default function MicProbeScreen() {
       {matrixRows.length > 0 ? <MatrixTable t={t} rows={matrixRows} /> : null}
     </Section>
 
-    <Section title={t("micProbe.calibrate")}>
-      <Text style={styles.help}>{t("micProbe.calibrateHelp")}</Text>
+    <Section title={t("micProbe.sideCheck")}>
+      <Text style={styles.help}>{t("micProbe.sideCheckHelp")}</Text>
       <ButtonRow>
-        <Action label={t("micProbe.calibrateLeft")} onPress={() => void calibrateSide("left")} disabled={busy || !moduleAvailable} />
-        <Action label={t("micProbe.calibrateRight")} onPress={() => void calibrateSide("right")} disabled={busy || !moduleAvailable} />
+        <Action label={t("micProbe.sideCheckLeft")} onPress={() => void checkSide("left")} disabled={busy || !moduleAvailable} />
+        <Action label={t("micProbe.sideCheckRight")} onPress={() => void checkSide("right")} disabled={busy || !moduleAvailable} />
       </ButtonRow>
-      {calibration.left !== undefined || calibration.right !== undefined ? <>
-        <Text style={styles.value}>{t("micProbe.levelLeft")}: {formatDb(calibration.left)}° · {t("micProbe.levelRight")}: {formatDb(calibration.right)}°</Text>
-        <Text style={styles.result}>{t(sideMapping === "negative-is-left" ? "micProbe.mappingNegativeLeft" : sideMapping === "positive-is-left" ? "micProbe.mappingPositiveLeft" : "micProbe.mappingInconclusive")}</Text>
-      </> : null}
+      {(["left", "right"] as const).map((side) => {
+        const check = sideChecks[side];
+        if (!check) return null;
+        const label = t(side === "left" ? "micProbe.sideLeft" : "micProbe.sideRight");
+        return <Text key={side} style={[styles.value, check.passed === false ? styles.danger : check.passed ? styles.ok : styles.muted]}>
+          {check.medianRobotBearingDeg === null ? `${label}: ${t("micProbe.bearingNone")}` : t("micProbe.sideCheckResult", { mark: check.passed ? "✓" : "✗", side: label, bearing: check.medianRobotBearingDeg.toFixed(1), samples: check.samples })}
+        </Text>;
+      })}
     </Section>
   </ScrollView>;
 }
@@ -429,6 +427,7 @@ function LiveReadout({ t, started, latest, verdict, running }: { t: Translate; s
       <Text style={styles.value}>{t("micProbe.format", { channels: started.channelCount, rate: started.sampleRate })}</Text>
       <Text style={styles.help}>{t("micProbe.route", { device: route })}</Text>
       <Text style={styles.help}>{t("micProbe.aecLine", { state: aecState })}</Text>
+      <Text style={styles.help}>{t("micProbe.frameInfo", { rotation: started.displayRotation })}</Text>
     </> : null}
     <Text style={[styles.verdict, verdict === "TRUE_STEREO" ? styles.ok : verdict === "FAKE_STEREO" ? styles.warn : verdict ? styles.danger : styles.muted]}>
       {verdict ? t(`micProbe.verdict.${verdict}` as UiStringKey) : t("micProbe.waiting")}
@@ -437,8 +436,10 @@ function LiveReadout({ t, started, latest, verdict, running }: { t: Translate; s
       <LevelBar label={t("micProbe.levelLeft")} db={latest.rmsL} />
       <LevelBar label={t("micProbe.levelRight")} db={latest.rmsR} />
       <Text style={styles.help}>{t("micProbe.correlation", { value: latest.channelCorrelation.toFixed(3) })}</Text>
-      <Text style={styles.label}>{t("micProbe.bearing")}: {latest.voiceActive && latest.bearingDeg !== null ? t("micProbe.bearingValue", { value: latest.bearingDeg.toFixed(0) }) : t("micProbe.bearingNone")}</Text>
-      <BearingGauge bearingDeg={latest.voiceActive ? latest.bearingDeg : null} />
+      <Text style={styles.label}>{t("micProbe.bearing")}: {latest.robotBearingDeg !== null ? t("micProbe.bearingValue", { value: latest.robotBearingDeg.toFixed(0) }) : t("micProbe.bearingNone")}</Text>
+      <BearingGauge t={t} bearingDeg={latest.robotBearingDeg} />
+      <Text style={styles.help}>{t("micProbe.vote", { share: Math.round(latest.voteShare * 100), count: latest.voteCount })}</Text>
+      {latest.robotFrameAvailable ? null : <Text style={[styles.help, styles.warn]}>{t("micProbe.robotFrameUnavailable")}</Text>}
       <Text style={styles.help}>{t("micProbe.gaugeHint")}</Text>
       <Text style={styles.help}>{t("micProbe.peakRatio", { value: latest.peakRatio.toFixed(1) })}</Text>
       <Text style={styles.help}>{latest.conversationRms === null ? t("micProbe.conversationOff") : t("micProbe.conversationRms", { value: formatDb(latest.conversationRms) })}</Text>
@@ -455,7 +456,7 @@ function LevelBar({ label, db }: { label: string; db: number }) {
   </View>;
 }
 
-function BearingGauge({ bearingDeg }: { bearingDeg: number | null }) {
+function BearingGauge({ t, bearingDeg }: { t: Translate; bearingDeg: number | null }) {
   const clamped = bearingDeg === null ? 0 : Math.max(-GAUGE_MAX_DEG, Math.min(GAUGE_MAX_DEG, bearingDeg));
   return <View>
     <View style={styles.gaugeTrack}>
@@ -463,9 +464,9 @@ function BearingGauge({ bearingDeg }: { bearingDeg: number | null }) {
       {bearingDeg !== null ? <View style={[styles.gaugeMarker, { left: `${((clamped + GAUGE_MAX_DEG) / (2 * GAUGE_MAX_DEG)) * 100}%` }]} /> : null}
     </View>
     <View style={styles.gaugeScale}>
-      <Text style={styles.help}>−90°</Text>
+      <Text style={[styles.help, styles.gaugeEnd]}>{t("micProbe.sideLeft")}</Text>
       <Text style={styles.help}>0°</Text>
-      <Text style={styles.help}>+90°</Text>
+      <Text style={[styles.help, styles.gaugeEnd, styles.gaugeEndRight]}>{t("micProbe.sideRight")}</Text>
     </View>
   </View>;
 }
@@ -479,7 +480,8 @@ function MatrixTable({ t, rows }: { t: Translate; rows: StereoProbeRunSummary[] 
     { key: "channels", title: t("micProbe.col.channels"), width: 40, cell: (row) => row.channelCount === null ? "–" : String(row.channelCount) },
     { key: "verdict", title: t("micProbe.col.verdict"), width: 150, cell: (row) => row.verdict ? t(`micProbe.verdict.${row.verdict}` as UiStringKey) : "–" },
     { key: "aec", title: t("micProbe.col.aec"), width: 60, cell: (row) => row.aecAvailable === null ? "–" : `${flag(row.aecAvailable)}/${flag(row.aecEnabled)}` },
-    { key: "bearing", title: t("micProbe.col.bearing"), width: 70, cell: (row) => row.medianBearingDeg === null ? "—" : `${row.medianBearingDeg.toFixed(0)}°` },
+    { key: "bearing", title: t("micProbe.col.bearing"), width: 70, cell: (row) => row.medianRobotBearingDeg === null ? "—" : `${row.medianRobotBearingDeg.toFixed(0)}°` },
+    { key: "vote", title: t("micProbe.col.vote"), width: 50, cell: (row) => row.voteSharePct === null ? "—" : `${Math.round(row.voteSharePct)}%` },
     { key: "peak", title: t("micProbe.col.peak"), width: 50, cell: (row) => row.meanPeakRatio === null ? "—" : row.meanPeakRatio.toFixed(1) },
     { key: "voice", title: t("micProbe.col.voice"), width: 56, cell: (row) => row.voiceActivePct === null ? "–" : `${row.voiceActivePct}%` },
     { key: "convAlive", title: t("micProbe.col.convAlive"), width: 80, cell: (row) => flag(row.conversationAlive) },
@@ -533,6 +535,8 @@ const styles = StyleSheet.create({
   gaugeCentre: { position: "absolute", left: "50%", top: 4, bottom: 4, width: 1, backgroundColor: looiTheme.muted },
   gaugeMarker: { position: "absolute", top: 3, width: 16, height: 20, marginLeft: -8, borderRadius: 8, backgroundColor: looiTheme.ok },
   gaugeScale: { flexDirection: "row", justifyContent: "space-between", marginTop: 4 },
+  gaugeEnd: { flex: 1 },
+  gaugeEndRight: { textAlign: "right" },
   tableRow: { flexDirection: "row", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: looiTheme.line },
   tableCell: { color: looiTheme.text, fontSize: 11, paddingVertical: 6, paddingRight: 6 },
   tableHead: { color: looiTheme.muted, fontWeight: "800", textTransform: "uppercase", fontSize: 10 },
