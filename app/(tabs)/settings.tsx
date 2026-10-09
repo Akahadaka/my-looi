@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Alert, Linking, PermissionsAndroid, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import Constants from "expo-constants";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 
 import { DeviceShell } from "@/src/ui/DeviceShell";
 import { looiTheme } from "@/src/ui/looi-theme";
@@ -103,6 +103,7 @@ type RobotUiState = {
 
 export default function SettingsScreen() {
   const { preferences, updatePreferences } = useUserStore();
+  const router = useRouter();
   const { language: interfaceLanguage, t } = useUiText();
   const [advanced, setAdvanced] = useState(false);
   const [voicesExpanded, setVoicesExpanded] = useState(false);
@@ -671,6 +672,7 @@ export default function SettingsScreen() {
               <Action label={t("settings.saveLocal")} onPress={() => void saveDiagnosticsToFolder()} disabled={diagnosticBusy || !diagnosticFolder} />
             </ButtonRow>
             <Action label={t("settings.clearDiagnostics")} onPress={() => void clearDiagnostics()} disabled={diagnosticBusy} secondary />
+            <Action label={t("micProbe.title")} onPress={() => router.push("/mic-probe")} secondary />
             {diagnosticResult ? <Text style={styles.result}>{diagnosticResult}</Text> : null}
           </View>
 

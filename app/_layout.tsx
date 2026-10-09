@@ -11,6 +11,7 @@ import 'react-native-reanimated';
 
 import { useColorScheme } from '@/components/useColorScheme';
 import { useUserStore } from '@/src/store/user';
+import { looiTheme } from '@/src/ui/looi-theme';
 import { markRobotInteraction, startRobotInactivityTimer, stopRobotInactivityTimer } from '@/src/core/robot-inactivity';
 import { recordDiagnosticEvent } from '@/src/diagnostics/diagnostic-log';
 import { startPerformanceMonitor, stopPerformanceMonitor } from '@/src/diagnostics/performance-monitor';
@@ -216,6 +217,15 @@ function RootLayoutNav() {
         <Stack>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="onboarding" options={{ headerShown: false }} />
+          <Stack.Screen
+            name="mic-probe"
+            options={{
+              headerShown: true,
+              headerStyle: { backgroundColor: looiTheme.bgRaised },
+              headerTintColor: looiTheme.text,
+              contentStyle: { backgroundColor: looiTheme.bg },
+            }}
+          />
         </Stack>
       </View>
     </ThemeProvider>
