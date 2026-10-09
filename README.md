@@ -4,14 +4,23 @@
 
 The project is community-developed and is not affiliated with or endorsed by the robot manufacturer.
 
+## User guide
+
+See [USER_GUIDE.md](USER_GUIDE.md) for setup, voice commands, visual look, safety, diagnostics and updates.
+
 ## Highlights
 
 - **Realtime PCM voice** with app-owned microphone capture and playback.
+- **Explicit visual look**: address LOOI and ask it to look at something to add a high-resolution snapshot to the current Realtime conversation; front camera is the default and an explicit rear-camera request can use an autofocus-capable rear sensor for fine text.
+- **Scoped photo discussion**: choose up to four existing images through Android Photo Picker; only those selected photos are read and added to the current Realtime context, with temporary per-selection URI grants when supported, without broad gallery permission or durable app copies.
 - **Natural interruption / barge-in**: speaking while LOOI talks stops playback and truncates the unheard response correctly.
 - **Localized Android interface** in Ukrainian, English and Russian, with an independent interface-language preference.
 - **Multilingual conversation** in Ukrainian, English and Russian, including independent listening/response preferences, voice-requested language switching, and one-off translation/pronunciation requests.
 - **Dynamic OpenAI Realtime model selection** based on the models available to the user's API key.
 - **Realtime voice selection with preview**, persisted locally.
+- **Independent speech gender**: choose masculine or feminine grammatical self-reference for Russian/Ukrainian without coupling it to voice or character.
+- **Voice loudness boost**: optional local +15% / +30% / +45% gain for Realtime PCM assistant playback, with the accepted native capture/AEC path unchanged.
+- **Cleaner Settings**: legacy/rare controls are collapsed or moved under Advanced; fully installed local voice models stay out of the way.
 - **Local memory and conversation history** stored in SQLite on the Android device.
 - **Local wake and safety command pipeline** for hands-free use.
 - **BLE reconnect and deterministic robot control** with voice-addressed movement and safety guardrails.
@@ -21,7 +30,7 @@ The project is community-developed and is not affiliated with or endorsed by the
 - **Manual diagnostics export** through the Android share sheet (including Google Drive when installed) or a persistently selected local Android Documents/SAF folder. My LOOI does not request direct Google Drive access.
 - **Manual GitHub Releases update flow** with APK checksum/package/version/signing-certificate verification before Android installation.
 
-See [USER_GUIDE.md](USER_GUIDE.md) for setup, built-in voice-command examples and everyday use, [FEATURES.md](FEATURES.md) for a fuller feature list, [CHANGELOG.md](CHANGELOG.md) for release notes, and [docs/architecture.md](docs/architecture.md) for the runtime architecture.
+See [FEATURES.md](FEATURES.md) for a fuller feature list, [CHANGELOG.md](CHANGELOG.md) for release notes, and [docs/architecture.md](docs/architecture.md) for the runtime architecture.
 
 ## Requirements
 
@@ -88,6 +97,12 @@ Because the current architecture and product goals differ substantially from the
 
 My LOOI is released under the MIT License.
 
-It originated from the MIT-licensed [GrinZero/super-looi](https://github.com/GrinZero/super-looi) project.
+My LOOI started as a fork of the MIT-licensed [Super LOOI](https://github.com/GrinZero/super-looi) project.
+
+Both My LOOI and Super LOOI build on ideas and findings from the wider LOOI community. In particular, the work in [SooperChargeForBots](https://github.com/splattydoesstuff/sooperchargeforbots) helped inform LOOI Robot control and BLE exploration.
+
+We thank the authors and contributors of both projects for their work and for making it available to the community.
+
+See [ACKNOWLEDGEMENTS.md](ACKNOWLEDGEMENTS.md) for additional community credits.
 
 Third-party components and model assets retain their own licenses. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

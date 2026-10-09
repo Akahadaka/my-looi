@@ -8,6 +8,7 @@ import {
   getLoadedTtsModule,
 } from "../voice/lazy-services";
 import { recordDiagnosticEvent } from "../diagnostics/diagnostic-log";
+import { recordPerformanceSnapshot } from "../diagnostics/performance-monitor";
 import { setIsAudioActiveAsync } from "expo-audio";
 import { isMainScreenFocused } from "./main-screen-presence";
 import {
@@ -35,6 +36,9 @@ const VOICE_PCM_RETRY_TIMEOUT_MS = 800;
 export async function bootstrapApp(): Promise<void> {
   if (bootstrapped) return;
   bootstrapped = true;
+  const bootstrapStartedAt = Date.now();
+  recordDiagnosticEvent("app", "bootstrap-start");
+  void recordPerformanceSnapshot("bootstrap-start");
 
   // v2.1.105 removes the Local-ASR experiment. Cleanup is best-effort and
   // deliberately preserves shared wake/command Whisper Tiny, KWS and VAD.
@@ -72,7 +76,12 @@ export async function bootstrapApp(): Promise<void> {
       });
     }
 
+    const voiceStartupStartedAt = Date.now();
     await startRuntimePerceivers();
+    recordDiagnosticEvent("performance", "voice-runtime-startup-finished", {
+      durationMs: Date.now() - voiceStartupStartedAt,
+    });
+    void recordPerformanceSnapshot("after-voice-runtime-startup");
     startAmbientMotionController("bootstrap");
     startSocialAttentionController("bootstrap");
 
@@ -83,7 +92,9 @@ export async function bootstrapApp(): Promise<void> {
   console.log("[Bootstrap] App initialized. Active perceivers:", perceiverManager.getRegisteredNames());
   recordDiagnosticEvent("app", "bootstrapped", {
     perceivers: perceiverManager.getRegisteredNames().join(","),
+    durationMs: Date.now() - bootstrapStartedAt,
   });
+  void recordPerformanceSnapshot("bootstrapped");
 
   runOptInOwnerEnrollmentOnBoot();
   runOptInLiveVoiceAcceptanceOnBoot();
@@ -221,20 +232,27 @@ export async function syncVoiceRuntime(): Promise<void> {
 }
 
 async function startRuntimePerceivers(): Promise<void> {
+  const startedAt = Date.now();
   try {
+    const perceiverStartAt = Date.now();
     await perceiverManager.start("voice");
+    recordDiagnosticEvent("performance", "voice-perceiver-start-stage", { durationMs: Date.now() - perceiverStartAt });
     // A foreground resume must restore the actual wakeword pipeline, not only
     // mark the facade active. sync() is idempotent and repairs a stopped native
     // feeder/wakeword service after lifecycle races.
+    const voiceSyncAt = Date.now();
     await voiceRuntime.sync();
+    recordDiagnosticEvent("performance", "voice-runtime-sync-stage", { durationMs: Date.now() - voiceSyncAt });
 
     const profile = getRuntimeProfile();
     const prefs = useUserStore.getState().preferences;
+    const importsAt = Date.now();
     const [{ kwsAudioFeeder }, { wakewordService }, { realtimeConversationService }] = await Promise.all([
       import("../voice/kws-audio-feeder"),
       import("../voice/wakeword"),
       import("../voice/realtime-conversation"),
     ]);
+    recordDiagnosticEvent("performance", "voice-runtime-imports-stage", { durationMs: Date.now() - importsAt });
     const expectedWakeword = profile.allowsWakewordAutostart && prefs.wakeWordEnabled;
     let status = kwsAudioFeeder.diagnosticStatus;
     const conversationStore = useConversationStore.getState();
@@ -369,6 +387,7 @@ async function startRuntimePerceivers(): Promise<void> {
         });
       }
     }
+    recordDiagnosticEvent("performance", "voice-runtime-perceivers-total", { durationMs: Date.now() - startedAt });
   } catch (error) {
     console.warn("[Bootstrap] Failed to start voice perceiver:", error);
     recordDiagnosticEvent("runtime", "foreground-voice-start-failed", {
@@ -378,14 +397,29 @@ async function startRuntimePerceivers(): Promise<void> {
 }
 
 function prewarmOfflineStt(): void {
-  void import("../voice/stt")
-    .then(({ sttService }) => sttService.initialize())
-    .then(() => {
-      console.log("[Bootstrap] Offline Whisper prewarmed");
-    })
-    .catch((error) => {
-      console.warn("[Bootstrap] STT prewarm failed (will retry on first use):", error);
-    });
+  const delayMs = 12_000;
+  recordDiagnosticEvent("performance", "offline-stt-prewarm-scheduled", { delayMs });
+  setTimeout(() => {
+    if (paused || useUserStore.getState().robotSleeping) return;
+    const startedAt = Date.now();
+    void recordPerformanceSnapshot("before-offline-stt-prewarm");
+    void import("../voice/stt")
+      .then(({ sttService }) => sttService.initialize())
+      .then(() => {
+        recordDiagnosticEvent("performance", "offline-stt-prewarm-finished", {
+          durationMs: Date.now() - startedAt,
+        });
+        void recordPerformanceSnapshot("after-offline-stt-prewarm");
+        console.log("[Bootstrap] Offline Whisper prewarmed");
+      })
+      .catch((error) => {
+        recordDiagnosticEvent("performance", "offline-stt-prewarm-failed", {
+          durationMs: Date.now() - startedAt,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        console.warn("[Bootstrap] STT prewarm failed (will retry on first use):", error);
+      });
+  }, delayMs);
 }
 
 

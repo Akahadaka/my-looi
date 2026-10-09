@@ -21,13 +21,14 @@ export function ConversationOverlay() {
   const isProcessing = useConversationStore((state) => state.isProcessing);
   const isSpeaking = useConversationStore((state) => state.isSpeaking);
   const realtimeReadiness = useConversationStore((state) => state.realtimeReadiness);
+  const realtimeIssue = useConversationStore((state) => state.realtimeIssue);
   const conversationMode = useUserStore((state) => state.preferences.conversationMode);
   const setOverlayVisible = useConversationStore((state) => state.setOverlayVisible);
   const { t } = useUiText();
   const opacity = useSharedValue(0);
   const translateY = useSharedValue(-8);
 
-  const shouldShow = overlayVisible || isListening || isProcessing || isSpeaking;
+  const shouldShow = overlayVisible || Boolean(realtimeIssue) || isListening || isProcessing || isSpeaking;
 
   useEffect(() => {
     opacity.value = withTiming(shouldShow ? 1 : 0, { duration: shouldShow ? 160 : 220 });
@@ -38,10 +39,10 @@ export function ConversationOverlay() {
     const realtimeStartupVisible =
       isRealtimeConversationMode(conversationMode) &&
       (realtimeReadiness === "preparing-microphone" || realtimeReadiness === "connecting");
-    if (isListening || isProcessing || isSpeaking || realtimeStartupVisible || !shouldShow) return;
+    if (realtimeIssue || isListening || isProcessing || isSpeaking || realtimeStartupVisible || !shouldShow) return;
     const timer = setTimeout(() => setOverlayVisible(false), IDLE_HIDE_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [conversationMode, isListening, isProcessing, isSpeaking, realtimeReadiness, setOverlayVisible, shouldShow]);
+  }, [conversationMode, isListening, isProcessing, isSpeaking, realtimeIssue, realtimeReadiness, setOverlayVisible, shouldShow]);
 
   const animatedStyle = useAnimatedStyle(() => ({
     opacity: opacity.value,
@@ -54,6 +55,7 @@ export function ConversationOverlay() {
     isSpeaking,
     conversationMode,
     realtimeReadiness,
+    realtimeIssue,
     t,
   });
   const assistantText = streamingText || getFallbackAssistantText({
@@ -61,6 +63,7 @@ export function ConversationOverlay() {
     isProcessing,
     conversationMode,
     realtimeReadiness,
+    realtimeIssue,
     t,
   });
 
@@ -92,6 +95,7 @@ function getStatusLabel({
   isSpeaking,
   conversationMode,
   realtimeReadiness,
+  realtimeIssue,
   t,
 }: {
   isListening: boolean;
@@ -99,8 +103,11 @@ function getStatusLabel({
   isSpeaking: boolean;
   conversationMode: ConversationMode;
   realtimeReadiness: "idle" | "preparing-microphone" | "connecting" | "ready" | "microphone-error" | "error";
+  realtimeIssue: "no_credits" | "invalid_key" | "network_error" | "service_error" | null;
   t: (key: UiStringKey) => string;
 }): string {
+  if (realtimeIssue === "no_credits") return t("overlay.openAiNoCreditsTitle");
+  if (realtimeIssue === "invalid_key") return t("overlay.openAiInvalidKeyTitle");
   if (isRealtimeConversationMode(conversationMode) && realtimeReadiness === "preparing-microphone") return t("overlay.preparingMic");
   if (isRealtimeConversationMode(conversationMode) && realtimeReadiness === "connecting") return t("overlay.connecting");
   if (isProcessing) return t("overlay.thinking");
@@ -117,14 +124,18 @@ function getFallbackAssistantText({
   isProcessing,
   conversationMode,
   realtimeReadiness,
+  realtimeIssue,
   t,
 }: {
   isListening: boolean;
   isProcessing: boolean;
   conversationMode: ConversationMode;
   realtimeReadiness: "idle" | "preparing-microphone" | "connecting" | "ready" | "microphone-error" | "error";
+  realtimeIssue: "no_credits" | "invalid_key" | "network_error" | "service_error" | null;
   t: (key: UiStringKey) => string;
 }): string {
+  if (realtimeIssue === "no_credits") return t("overlay.openAiNoCreditsBody");
+  if (realtimeIssue === "invalid_key") return t("overlay.openAiInvalidKeyBody");
   if (isRealtimeConversationMode(conversationMode) && realtimeReadiness === "preparing-microphone") {
     return t("overlay.prepareHelp");
   }

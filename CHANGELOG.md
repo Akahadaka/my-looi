@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.1.151 — 2026-09-07
+
+Changes since v2.1.136:
+
+- Added explicit visual look commands so the user can ask LOOI to look at an object or page and continue discussing it.
+- Added rear-camera visual capture support and improved visual-context handling.
+- Added Android Photo Picker support for discussing existing photos, including persistent URI access.
+- Added configurable voice playback gain.
+- Added grammatical gender for robot self-reference in Russian and Ukrainian.
+- Simplified Settings and reduced redundant controls.
+- Added richer performance diagnostics: process memory usage, Android process exit reasons, JS event-loop stalls, and detailed startup/model-load timings.
+- Reduced startup contention by deferring optional local Vosk and offline-STT prewarming.
+- Updated public documentation and acknowledgements.
+
 ## 2.1.136 — 2026-08-31
 
 - Rolled the OpenAI Realtime server-VAD threshold back from the aggressive 0.10 experiment to 0.15 after physical testing showed 0.10 still did not provide reliable far-field conversation. The protected 500 ms prefix padding, 1000 ms silence duration and `far_field` input noise reduction remain unchanged.

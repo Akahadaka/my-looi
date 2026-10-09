@@ -1,5 +1,6 @@
 import * as SecureStore from "expo-secure-store";
 import { isRealtimeConversationModelId, preferRealtimeModelAliases, type OpenAiRealtimeModel } from "./realtime-models";
+import { classifyOpenAiError, clearOpenAiApiStatus, getOpenAiApiStatus, setOpenAiApiStatus } from "./openai-api-status";
 
 const OPENAI_API_KEY_STORAGE_KEY = "looi.openai-api-key.v1";
 const MIN_OPENAI_API_KEY_LENGTH = 20;
@@ -53,23 +54,36 @@ export async function saveOpenAiApiKey(value: string): Promise<void> {
   const key = validateOpenAiApiKey(value);
   await SecureStore.setItemAsync(OPENAI_API_KEY_STORAGE_KEY, key);
   cachedKey = key;
+  await clearOpenAiApiStatus();
 }
 
 export async function clearOpenAiApiKey(): Promise<void> {
   await SecureStore.deleteItemAsync(OPENAI_API_KEY_STORAGE_KEY);
   cachedKey = null;
+  await clearOpenAiApiStatus();
 }
 
 export async function listOpenAiRealtimeModels(): Promise<OpenAiRealtimeModel[]> {
   const key = await getOpenAiApiKey();
   if (!key) throw new MissingOpenAiApiKeyError();
 
-  const response = await fetch(OPENAI_MODELS_URL, {
-    headers: { Authorization: `Bearer ${key}` },
-  });
-  if (!response.ok) {
-    throw new Error(await makeOpenAiHttpError("OpenAI model list", response));
+  let response: Response;
+  try {
+    response = await fetch(OPENAI_MODELS_URL, {
+      headers: { Authorization: `Bearer ${key}` },
+    });
+  } catch (error) {
+    void setOpenAiApiStatus("network_error", error instanceof Error ? error.message : String(error));
+    throw error;
   }
+  if (!response.ok) {
+    const message = await makeOpenAiHttpError("OpenAI model list", response);
+    void setOpenAiApiStatus(classifyOpenAiError(response.status, message) ?? "service_error", message);
+    throw new Error(message);
+  }
+  void getOpenAiApiStatus().then((status) => {
+    if (status.kind !== "no_credits" && status.kind !== "working") void setOpenAiApiStatus("key_valid", "Model list request succeeded");
+  });
   const payload = await response.json() as { data?: Array<Record<string, unknown>> };
   const models = (payload.data ?? [])
     .map((item): OpenAiRealtimeModel | null => {
@@ -101,18 +115,29 @@ export async function createOpenAiRealtimeClientSecret(
   const key = await getOpenAiApiKey();
   if (!key) throw new MissingOpenAiApiKeyError();
 
-  const response = await fetch(OPENAI_REALTIME_CLIENT_SECRETS_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ session }),
-  });
+  let response: Response;
+  try {
+    response = await fetch(OPENAI_REALTIME_CLIENT_SECRETS_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ session }),
+    });
+  } catch (error) {
+    void setOpenAiApiStatus("network_error", error instanceof Error ? error.message : String(error));
+    throw error;
+  }
 
   if (!response.ok) {
-    throw new Error(await makeOpenAiHttpError("Realtime client secret", response));
+    const message = await makeOpenAiHttpError("Realtime client secret", response);
+    void setOpenAiApiStatus(classifyOpenAiError(response.status, message) ?? "service_error", message);
+    throw new Error(message);
   }
+  void getOpenAiApiStatus().then((status) => {
+    if (status.kind !== "no_credits" && status.kind !== "working") void setOpenAiApiStatus("key_valid", "Realtime client secret created");
+  });
 
   const data = await response.json() as Record<string, unknown>;
   const value = typeof data.value === "string" ? data.value.trim() : "";

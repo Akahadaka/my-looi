@@ -14,6 +14,7 @@ import { useUserStore } from '@/src/store/user';
 import { looiTheme } from '@/src/ui/looi-theme';
 import { markRobotInteraction, startRobotInactivityTimer, stopRobotInactivityTimer } from '@/src/core/robot-inactivity';
 import { recordDiagnosticEvent } from '@/src/diagnostics/diagnostic-log';
+import { startPerformanceMonitor, stopPerformanceMonitor } from '@/src/diagnostics/performance-monitor';
 import {
   cancelBackgroundHardExit,
   consumePreviousBackgroundProcessExit,
@@ -51,7 +52,11 @@ export default function RootLayout() {
 
   useEffect(() => {
     startRobotInactivityTimer();
-    return () => stopRobotInactivityTimer();
+    startPerformanceMonitor();
+    return () => {
+      stopRobotInactivityTimer();
+      stopPerformanceMonitor();
+    };
   }, []);
 
   useEffect(() => {

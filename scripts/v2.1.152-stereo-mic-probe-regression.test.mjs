@@ -140,8 +140,10 @@ const layout = read("app/_layout.tsx");
 assert.match(layout, /<Stack\.Screen\s+name="mic-probe"/);
 const settings = read("app/(tabs)/settings.tsx");
 assert.match(settings, /router\.push\("\/mic-probe"\)/);
-const diagnosticsSection = settings.slice(settings.indexOf('<Section title={t("settings.diagnostics")}>'));
-assert.ok(diagnosticsSection.indexOf('t("micProbe.title")') > 0 && diagnosticsSection.indexOf('t("micProbe.title")') < diagnosticsSection.indexOf("</Section>"));
+// v2.1.151 moved Diagnostics into a sub-card; the probe entry must sit inside that block.
+const diagnosticsBlock = settings.slice(settings.indexOf('t("settings.diagnostics")'));
+const diagnosticsEnd = Math.min(...["</Section>", "</View>"].map((tag) => diagnosticsBlock.indexOf(tag)).filter((index) => index > 0));
+assert.ok(diagnosticsBlock.indexOf('t("micProbe.title")') > 0 && diagnosticsBlock.indexOf('t("micProbe.title")') < diagnosticsEnd);
 
 // Every micProbe string key exists in all three locales (the type system enforces it; this keeps the intent explicit).
 const strings = read("src/i18n/ui-strings.ts");

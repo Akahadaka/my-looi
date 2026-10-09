@@ -18,6 +18,27 @@ export type LocalFaceFrameEvent = {
   primary: LocalFaceRect | null;
 };
 
+
+export type LocalCameraFacing = "front" | "back";
+
+export type LocalStillCapture = {
+  mimeType: "image/jpeg";
+  base64: string;
+  width: number;
+  height: number;
+  timestampMs: number;
+  cameraFacing: LocalCameraFacing;
+  cameraId: string | null;
+  autofocusMode: number;
+  flashAvailable: boolean;
+  aeState: number | null;
+  awbState: number | null;
+  afState: number | null;
+  exposureTimeMs: number | null;
+  sensitivityIso: number | null;
+  lowLightLikely: boolean;
+};
+
 export type LocalFaceAttentionErrorEvent = {
   stage: string;
   message: string;
@@ -30,6 +51,10 @@ export type LocalFaceAttentionStatus = {
   cameraId: string | null;
   lensFacing: string;
   framesAnalyzed: number;
+  stillWidth?: number | null;
+  stillHeight?: number | null;
+  autofocusMode?: number;
+  flashAvailable?: boolean;
 };
 
 type Events = {
@@ -41,6 +66,7 @@ declare class LocalFaceAttentionNativeModule extends NativeModule<Events> {
   start(): Promise<LocalFaceAttentionStatus>;
   stop(): Promise<LocalFaceAttentionStatus>;
   getStatus(): Promise<LocalFaceAttentionStatus>;
+  captureStill(cameraFacing: LocalCameraFacing): Promise<LocalStillCapture>;
 }
 
 let cached: LocalFaceAttentionNativeModule | null | undefined;
