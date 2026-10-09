@@ -718,6 +718,17 @@ export async function performLooiSocialAttentionPivot(direction: "left" | "right
   });
 }
 
+/**
+ * Pivot used by the developer pivot calibration (Settings › Diagnostics). It is
+ * the same bounded primitive as every other wheel movement, only tagged so
+ * calibration pivots can be told apart in the diagnostic log.
+ */
+export async function performLooiCalibrationPivot(direction: "left" | "right", durationMs: number) {
+  return runBoundedMotion(direction, durationMs, "manual-bounded", {
+    pivotCalibration: true,
+  });
+}
+
 /** Calibrated bounded turn. First build uses time estimates that must be tuned on the real robot. */
 export async function turnLooi(direction: "left" | "right", degrees: 90 | 180 = 90) {
   const robot = await getRobot();
