@@ -53,3 +53,7 @@ yarn-error.*
 *.tgz
 *.sha256
 /assets/diagnostics/
+
+# Gradle output from local native module builds
+modules/*/android/build/
+modules/*/android/.cxx/
