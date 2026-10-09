@@ -221,6 +221,15 @@ function RootLayoutNav() {
               contentStyle: { backgroundColor: looiTheme.bg },
             }}
           />
+          <Stack.Screen
+            name="pivot-calibration"
+            options={{
+              headerShown: true,
+              headerStyle: { backgroundColor: looiTheme.bgRaised },
+              headerTintColor: looiTheme.text,
+              contentStyle: { backgroundColor: looiTheme.bg },
+            }}
+          />
         </Stack>
       </View>
     </ThemeProvider>

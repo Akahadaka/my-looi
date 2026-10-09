@@ -1,0 +1,17 @@
+apply plugin: 'com.android.library'
+apply plugin: 'expo-module-gradle-plugin'
+
+group = 'com.superlooi.gyroyawrecorder'
+version = '1.0.0'
+
+expoModule {
+  canBePublished false
+}
+
+android {
+  namespace 'com.superlooi.gyroyawrecorder'
+
+  defaultConfig {
+    minSdkVersion 24
+  }
+}

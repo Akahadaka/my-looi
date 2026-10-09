@@ -597,6 +597,7 @@ export default function SettingsScreen() {
         </ButtonRow>
         <Action label={t("settings.clearDiagnostics")} onPress={() => void clearDiagnostics()} disabled={diagnosticBusy} secondary />
         <Action label={t("micProbe.title")} onPress={() => router.push("/mic-probe")} secondary />
+        <Action label={t("pivotCalibration.title")} onPress={() => router.push("/pivot-calibration")} secondary />
         {diagnosticResult ? <Text style={styles.result}>{diagnosticResult}</Text> : null}
       </Section>
 
