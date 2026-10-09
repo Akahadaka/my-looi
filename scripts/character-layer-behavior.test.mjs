@@ -32,6 +32,8 @@ let notifyFed9 = null;
 const customRequire = (id) => {
   if (id === "@sourcebug/looi-sdk") return sdk;
   if (id === "./fed9-sensors") return fed9;
+  // Uncalibrated: turnLooi falls back to the TURN_90_MS / TURN_180_MS guesses.
+  if (id === "./pivot-calibration") return { pivotSegmentsForDegrees: () => null };
   if (id === "../diagnostics/diagnostic-log") {
     return { recordDiagnosticEvent: (category, event, details = {}) => events.push({ category, event, details, at: Date.now() }) };
   }

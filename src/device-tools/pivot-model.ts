@@ -131,3 +131,19 @@ export function durationForDegrees(model: PivotDirectionModel, degrees: number):
 export function clampPivotDuration(durationMs: number): number {
   return Math.max(PIVOT_MIN_DURATION_MS, Math.min(PIVOT_MAX_DURATION_MS, Math.round(durationMs)));
 }
+
+/** More segments than this means the model is nonsense for the request; it is capped rather than trusted. */
+export const MAX_PIVOT_SEGMENTS = 4;
+
+/**
+ * Splits a turn into the fewest equal bounded pivots that each fit within
+ * PIVOT_MAX_DURATION_MS. Each segment is sized from the model for its share of
+ * the angle, so every segment pays its own dead time, as it does on the robot
+ * when each pivot starts from rest. Empty for <= 0 degrees.
+ */
+export function planPivotSegments(model: PivotDirectionModel, degrees: number): number[] {
+  if (!(degrees > 0)) return [];
+  let count = 1;
+  while (count < MAX_PIVOT_SEGMENTS && durationForDegrees(model, degrees / count) > PIVOT_MAX_DURATION_MS) count += 1;
+  return Array.from({ length: count }, () => clampPivotDuration(durationForDegrees(model, degrees / count)));
+}

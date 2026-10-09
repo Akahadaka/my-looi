@@ -20,6 +20,7 @@ import {
   clearPivotCalibration,
   loadPivotCalibration,
   pivotDurationForDegrees,
+  pivotSegmentsForDegrees,
   savePivotCalibration,
   type PivotCalibration,
   type PivotSurface,
@@ -352,8 +353,8 @@ export default function PivotCalibrationScreen() {
       <Text style={styles.label}>{t("pivotCalibration.preview")}</Text>
       {PREVIEW_DEGREES.map((degrees) => <Text key={degrees} style={styles.help}>{t("pivotCalibration.previewLine", {
         degrees,
-        left: pivotDurationForDegrees("left", degrees),
-        right: pivotDurationForDegrees("right", degrees),
+        left: formatTurnPlan("left", degrees),
+        right: formatTurnPlan("right", degrees),
       })}</Text>)}
       <ButtonRow>
         <Action label={t("pivotCalibration.testLeft", { degrees: TEST_TURN_DEGREES })} onPress={() => void testTurn("left")} disabled={busy || !gyroAvailable} secondary />
@@ -362,6 +363,12 @@ export default function PivotCalibrationScreen() {
       </ButtonRow>
     </Section>
   </ScrollView>;
+}
+
+/** "1167 ms", or "2 × 1172 ms" when the turn is split into several bounded pivots. */
+function formatTurnPlan(direction: PivotDirection, degrees: number): string {
+  const segments = pivotSegmentsForDegrees(direction, degrees) ?? [pivotDurationForDegrees(direction, degrees)];
+  return segments.length > 1 ? `${segments.length} × ${segments[0]} ms` : `${segments[0]} ms`;
 }
 
 function fitToDiagnostic(direction: PivotDirection, model: PivotDirectionModel | null) {

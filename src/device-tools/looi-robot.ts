@@ -11,6 +11,7 @@ import {
   PROVISIONAL_TOF_OBSTACLE_MM,
   type Fed9CliffSensors,
 } from "./fed9-sensors";
+import { pivotSegmentsForDegrees } from "./pivot-calibration";
 
 const DEFAULT_MOVE_DURATION_MS = 700;
 const MAX_MOVE_DURATION_MS = 1_800;
@@ -25,9 +26,14 @@ export const CLIFF_ESCAPE_CLEAR_MS = 650;
 export const MANUAL_REPOSITION_SAFE_MS = 900;
 export const CONTINUOUS_MOTION_DEADMAN_MS = 5_000;
 /** Real captures occasionally space FED9 notifications ~5 s apart. */
-/** First physical calibration estimates; Settings exposes dedicated test buttons. */
+/**
+ * Uncalibrated turn guesses, used only when Pivot calibration has not been
+ * saved. The 2026-10-09 desk calibration showed 650 ms turns only ~50-57 degrees.
+ */
 export const TURN_90_MS = 650;
 export const TURN_180_MS = 1_560;
+/** Rest between the pivots of a multi-segment turn, so each starts from standstill. */
+export const TURN_SEGMENT_REST_MS = 250;
 let lastFed9LoggedAt = 0;
 let lastCliffLoggedAt = 0;
 let lastCliffLoggedSafe: boolean | null = null;
@@ -729,11 +735,51 @@ export async function performLooiCalibrationPivot(direction: "left" | "right", d
   });
 }
 
-/** Calibrated bounded turn. First build uses time estimates that must be tuned on the real robot. */
+/**
+ * Bounded turn. Durations come from the saved pivot calibration (Settings ›
+ * Diagnostics › Pivot calibration) when that direction has one, otherwise
+ * from the uncalibrated TURN_90_MS / TURN_180_MS guesses. A turn longer than
+ * one bounded pivot allows (180 degrees needs ~2.2 s against the 1.8 s limit)
+ * runs as several equal pivots, each with its own safety gates and STOP, and
+ * a short rest between them so each starts from standstill as calibrated.
+ * STOP, a safety block or another motion during any segment cancels the rest.
+ */
 export async function turnLooi(direction: "left" | "right", degrees: 90 | 180 = 90) {
   const robot = await getRobot();
-  const durationMs = clampDuration(degrees === 180 ? TURN_180_MS : TURN_90_MS);
-  const source = `turn-${degrees}`;
+  const calibratedSegments = pivotSegmentsForDegrees(direction, degrees);
+  const segments = calibratedSegments ?? [clampDuration(degrees === 180 ? TURN_180_MS : TURN_90_MS)];
+  const calibrated = calibratedSegments !== null;
+  let completed = false;
+  for (let index = 0; index < segments.length; index += 1) {
+    if (index > 0) {
+      const generationBeforeRest = state.motionGeneration;
+      await delay(TURN_SEGMENT_REST_MS);
+      // Anything that started or stopped motion during the rest owns the wheels now.
+      if (generationBeforeRest !== state.motionGeneration) {
+        completed = false;
+        break;
+      }
+    }
+    completed = await runTurnSegment(robot, direction, segments[index], {
+      degrees,
+      calibrated,
+      segment: index + 1,
+      segments: segments.length,
+    });
+    if (!completed) break;
+  }
+  const durationMs = segments.reduce((total, segment) => total + segment, 0);
+  return { ok: true, direction, durationMs, segments, calibrated, degrees, safetyBounded: false, mode: "calibrated-turn" as const, completed };
+}
+
+/** One turn pivot; resolves true when it ran to its own STOP rather than being replaced or stopped. */
+async function runTurnSegment(
+  robot: LooiRobot,
+  direction: "left" | "right",
+  durationMs: number,
+  details: { degrees: number; calibrated: boolean; segment: number; segments: number }
+): Promise<boolean> {
+  const source = `turn-${details.degrees}`;
   await waitForMovementSafetyReady(direction, source);
   assertMovementAllowed(direction, source);
   prepareMotionStart(robot, direction, source);
@@ -748,7 +794,7 @@ export async function turnLooi(direction: "left" | "right", degrees: 90 | 180 = 
     direction,
     durationMs,
     mode: "calibrated-turn",
-    degrees,
+    ...details,
     sensorGate: "calibrated-directional-cliff-v2",
   });
   try {
@@ -779,11 +825,11 @@ export async function turnLooi(direction: "left" | "right", degrees: 90 | 180 = 
         direction,
         reason: "duration-complete",
         mode: "calibrated-turn",
-        degrees,
+        ...details,
       });
     }
   }
-  return { ok: true, direction, durationMs, degrees, safetyBounded: false, mode: "calibrated-turn" as const, completed };
+  return completed;
 }
 
 /**

@@ -4,6 +4,7 @@ import {
   clampPivotDuration,
   durationForDegrees,
   FALLBACK_DEG_PER_MS,
+  planPivotSegments,
   type PivotDirection,
   type PivotDirectionModel,
   type PivotTrial,
@@ -55,4 +56,15 @@ export function pivotDurationForDegrees(direction: PivotDirection, degrees: numb
   const model = loadPivotCalibration()?.[direction] ?? null;
   const durationMs = model ? durationForDegrees(model, degrees) : degrees / FALLBACK_DEG_PER_MS;
   return clampPivotDuration(durationMs);
+}
+
+/**
+ * Bounded pivot durations (ms) that together turn LOOI `degrees` towards
+ * `direction`, or null when that direction has no saved calibration. Turns
+ * longer than one bounded pivot allows (e.g. 180 degrees) come back as several
+ * equal segments.
+ */
+export function pivotSegmentsForDegrees(direction: PivotDirection, degrees: number): number[] | null {
+  const model = loadPivotCalibration()?.[direction] ?? null;
+  return model ? planPivotSegments(model, degrees) : null;
 }

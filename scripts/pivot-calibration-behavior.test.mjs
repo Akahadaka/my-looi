@@ -118,6 +118,15 @@ assert.equal(model.fitPivotDirection(
   "right"
 ), null, "a falling line is rejected");
 
+// --- Splitting turns that do not fit in one bounded pivot (2026-10-09 desk numbers for LOOI's left).
+const measuredLeft = { table: [], degPerMs: 0.078, deadTimeMs: 18, r2: 0.995, trialCount: 18 };
+assert.deepEqual(model.planPivotSegments(measuredLeft, 90), [Math.round(18 + 90 / 0.078)], "90 degrees fits one pivot");
+const half = Math.round(18 + 90 / 0.078);
+assert.deepEqual(model.planPivotSegments(measuredLeft, 180), [half, half], "180 degrees is two equal pivots, each paying the dead time");
+assert.ok(model.planPivotSegments(measuredLeft, 180).every((ms) => ms <= model.PIVOT_MAX_DURATION_MS));
+assert.equal(model.planPivotSegments(measuredLeft, 10_000).length, model.MAX_PIVOT_SEGMENTS, "segment count is capped");
+assert.deepEqual(model.planPivotSegments(measuredLeft, 0), []);
+
 // --- Runner: plan shape, and an end-to-end pivot with a fake gyro and robot.
 const diagnostics = [];
 let driving = null;
@@ -174,6 +183,74 @@ for (const direction of ["right", "left"]) {
 assert.equal(diagnostics.filter((entry) => entry.event === "pivot-calibration-trial").length, 2);
 fakeGyro.recording = false;
 await assert.rejects(runner.runCalibrationPivot(plan[0]), /recorder is not running/);
+
+// --- turnLooi: calibrated segments, each through the full safety path, cancellable between segments.
+{
+  const sdk = compileTs("packages/looi-sdk/src/index.ts");
+  const fed9 = compileTs("src/device-tools/fed9-sensors.ts");
+  const events = [];
+  let segmentsFor = () => null;
+  let notifyFed9 = null;
+  const robotSource = read("src/device-tools/looi-robot.ts").replace(
+    "export const TURN_SEGMENT_REST_MS = 250;",
+    "export const TURN_SEGMENT_REST_MS = 40;"
+  );
+  const robotFile = "src/device-tools/looi-robot.ts";
+  const output = ts.transpileModule(robotSource, {
+    fileName: robotFile,
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const robotModule = { exports: {} };
+  new Function("exports", "require", "module", "__filename", "__dirname", output)(robotModule.exports, (id) => {
+    if (id === "@sourcebug/looi-sdk") return sdk;
+    if (id === "./fed9-sensors") return fed9;
+    if (id === "./pivot-calibration") return { pivotSegmentsForDegrees: (...args) => segmentsFor(...args) };
+    if (id === "../diagnostics/diagnostic-log") return { recordDiagnosticEvent: (category, event, details = {}) => events.push({ event, details }) };
+    return require(id);
+  }, robotModule, robotFile, path.dirname(robotFile));
+  const robot = robotModule.exports;
+  robot.configureLooiRobotTransport({
+    async connect() {},
+    async disconnect() {},
+    hasCharacteristic: (key) => key === "dockNotify" || key === "drive",
+    async startNotifications(key, callback) { if (key === "dockNotify") notifyFed9 = callback; },
+    async write() {},
+  });
+  await robot.connectLooiRobot();
+  const feed = (bytes) => notifyFed9({ characteristic: "dockNotify", hex: "", bytes: new Uint8Array(bytes) });
+  feed([0x0e, 0xe8, 0x03]);
+  feed([1, 1, 1, 1, 1]);
+  await new Promise((resolve) => setTimeout(resolve, 280));
+  const turnStarts = () => events.filter((entry) => entry.event === "move-start" && entry.details.mode === "calibrated-turn");
+
+  segmentsFor = (direction, degrees) => (direction === "right" && degrees === 180 ? [120, 120] : null);
+  const split = await robot.turnLooi("right", 180);
+  assert.equal(split.completed, true);
+  assert.equal(split.calibrated, true);
+  assert.deepEqual(split.segments, [120, 120]);
+  assert.equal(split.durationMs, 240);
+  assert.deepEqual(turnStarts().map((entry) => `${entry.details.segment}/${entry.details.segments}:${entry.details.durationMs}`), ["1/2:120", "2/2:120"]);
+
+  events.length = 0;
+  const fallback = await robot.turnLooi("left", 90);
+  assert.equal(fallback.calibrated, false, "no saved calibration falls back to the guesses");
+  assert.deepEqual(fallback.segments, [robot.TURN_90_MS]);
+
+  events.length = 0;
+  segmentsFor = () => [200, 200];
+  const pending = robot.turnLooi("right", 180);
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  await robot.stopLooiMotion("test-stop");
+  const stopped = await pending;
+  assert.equal(stopped.completed, false, "STOP during the first segment cancels the turn");
+  assert.equal(turnStarts().length, 1, "the second segment never starts after STOP");
+
+  events.length = 0;
+  segmentsFor = () => [100, 100];
+  feed([1, 0, 1, 1, 1]); // Front-left cliff: turns are blocked.
+  await assert.rejects(robot.turnLooi("right", 180), /Движение заблокировано/);
+  assert.equal(turnStarts().length, 0, "a blocked turn emits no segment");
+}
 
 // --- Wiring: safety path, native module, screen.
 const robot = read("src/device-tools/looi-robot.ts");
