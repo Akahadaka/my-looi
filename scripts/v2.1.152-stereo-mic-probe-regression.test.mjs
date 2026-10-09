@@ -25,7 +25,8 @@ const kotlinDir = "modules/stereo-mic-probe/android/src/main/java/com/superlooi/
 const kotlin = read(`${kotlinDir}StereoMicProbeModule.kt`);
 const gcc = read(`${kotlinDir}GccPhat.kt`);
 assert.match(kotlin, /Name\("StereoMicProbe"\)/);
-assert.match(kotlin, /Events\("onProbeFrame", "onProbeError", "onProbeStarted", "onProbeStopped"\)/);
+assert.match(kotlin, /Events\("onProbeFrame", "onProbeError", "onProbeStarted", "onProbeStopped", "onProbeWavSaved"\)/);
+assert.match(read("modules/stereo-mic-probe/android/src/main/java/com/superlooi/stereomicprobe/WavWriter.kt"), /class WavWriter/);
 assert.match(kotlin, /AsyncFunction\("getCapabilities"\)/);
 assert.match(kotlin, /AsyncFunction\("start"\) \{ options: Map<String, Any\?> ->/);
 assert.match(kotlin, /AsyncFunction\("stop"\)/);

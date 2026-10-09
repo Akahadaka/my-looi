@@ -48,6 +48,8 @@ export type StereoProbeOptions = {
   simulateConversationCapture: boolean;
   /** Metres between the two microphones. Defaults to estimatedMicSpacingM, else 0.15. */
   micSpacingM?: number;
+  /** Also save the raw stereo capture as a PCM16 WAV in the app's external files directory (max 30 s). */
+  recordWavSeconds?: number;
 };
 
 export type StereoProbeAecInfo = {
@@ -77,6 +79,8 @@ export type StereoProbeStartedEvent = {
   routedDevice: StereoProbeRoutedDevice | null;
   aec: StereoProbeAecInfo | null;
   simulateConversationCapture: boolean;
+  /** Absolute path of the WAV being written, when `recordWavSeconds` was requested. */
+  wavPath: string | null;
   conversation: {
     sampleRate: number;
     channelCount: number;
@@ -140,6 +144,7 @@ type Events = {
   onProbeError(event: StereoProbeErrorEvent): void;
   onProbeStarted(event: StereoProbeStartedEvent): void;
   onProbeStopped(event: StereoProbeStoppedEvent): void;
+  onProbeWavSaved(event: { path: string; bytes: number }): void;
 };
 
 declare class StereoMicProbeNativeModule extends NativeModule<Events> {

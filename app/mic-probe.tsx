@@ -38,10 +38,11 @@ const SAMPLE_RATES = [48000, 44100, 16000] as const;
 const MATRIX_RUN_MS = 4000;
 const MATRIX_GAP_MS = 600;
 const CALIBRATION_MS = 3000;
+const WAV_SECONDS = 5;
 const LEVEL_MIN_DB = -90;
 const GAUGE_MAX_DEG = 90;
 
-type ProbeMode = "idle" | "live" | "matrix" | "calibrate";
+type ProbeMode = "idle" | "live" | "matrix" | "calibrate" | "record";
 type Side = "left" | "right";
 
 /** What the app's own capture looked like before the probe took the microphone. */
@@ -181,6 +182,33 @@ export default function MicProbeScreen() {
       });
     };
   }, [changeMode, pauseAppCapture, restoreAppCapture, stopEverything]));
+
+  /** Saves 5 s of raw stereo from the selected source for offline analysis (pulled with adb). */
+  const recordWav = useCallback(async () => {
+    if (modeRef.current !== "idle") return;
+    changeMode("record");
+    abortRef.current = false;
+    setError(null);
+    setRecentFrames([]);
+    setMessage(t("micProbe.recordingWav", { seconds: WAV_SECONDS }));
+    try {
+      await pauseAppCapture();
+      const current = settingsRef.current;
+      const result = await runStereoProbeCapture(
+        { source: current.source, sampleRate: current.sampleRate, simulateConversationCapture: false, recordWavSeconds: WAV_SECONDS },
+        WAV_SECONDS * 1000 + 500,
+        { onFrame: handleFrame, shouldAbort: () => abortRef.current }
+      );
+      setStarted(result.started);
+      if (result.error) setError(t("common.error", { message: result.error }));
+      else if (result.started?.wavPath) {
+        recordDiagnosticEvent("audio", "stereo-mic-probe-wav-saved", { source: current.source, path: result.started.wavPath });
+        setMessage(t("micProbe.wavSaved", { path: result.started.wavPath }));
+      }
+    } finally {
+      changeMode("idle");
+    }
+  }, [changeMode, handleFrame, pauseAppCapture, t]);
 
   const startLive = useCallback(async () => {
     if (modeRef.current !== "idle") return;
@@ -332,6 +360,7 @@ export default function MicProbeScreen() {
       <ButtonRow>
         <Action label={t("micProbe.start")} onPress={() => void startLive()} disabled={busy || !moduleAvailable} />
         <Action label={t("micProbe.stop")} onPress={() => void stopEverything()} disabled={!busy} secondary />
+        <Action label={t("micProbe.recordWav", { seconds: WAV_SECONDS })} onPress={() => void recordWav()} disabled={busy || !moduleAvailable} secondary />
       </ButtonRow>
     </Section>
 

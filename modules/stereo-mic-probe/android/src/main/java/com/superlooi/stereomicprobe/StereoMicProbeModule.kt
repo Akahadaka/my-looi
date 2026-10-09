@@ -62,6 +62,7 @@ class StereoMicProbeModule : Module() {
     private const val MIN_PEAK_RATIO = 3.0
     private const val LEVEL_FLOOR_DB = -120.0
     private const val MAX_CONSECUTIVE_READ_ERRORS = 25
+    private const val MAX_WAV_SECONDS = 30.0
 
     /** Noise floors survive stop/start so a matrix run does not re-learn it while the user is already speaking. */
     private val noiseFloors = ConcurrentHashMap<String, Pair<Double, Long>>()
@@ -71,7 +72,7 @@ class StereoMicProbeModule : Module() {
 
   override fun definition() = ModuleDefinition {
     Name("StereoMicProbe")
-    Events("onProbeFrame", "onProbeError", "onProbeStarted", "onProbeStopped")
+    Events("onProbeFrame", "onProbeError", "onProbeStarted", "onProbeStopped", "onProbeWavSaved")
 
     AsyncFunction("getCapabilities") { getCapabilities() }
     AsyncFunction("start") { options: Map<String, Any?> -> startProbe(options) }
@@ -230,7 +231,8 @@ class StereoMicProbeModule : Module() {
     val sourceId: Int,
     val sampleRate: Int,
     val simulateConversation: Boolean,
-    val micSpacingM: Double
+    val micSpacingM: Double,
+    val recordWavSeconds: Double
   )
 
   private fun parseOptions(options: Map<String, Any?>): ProbeConfig {
@@ -252,7 +254,11 @@ class StereoMicProbeModule : Module() {
     val spacing = requestedSpacing
       ?: estimateMicSpacing(readMicrophones(context().getSystemService(Context.AUDIO_SERVICE) as AudioManager))
       ?: DEFAULT_MIC_SPACING_M
-    return ProbeConfig(sourceName, sourceId, sampleRate, simulate, spacing)
+    val recordWavSeconds = (options["recordWavSeconds"] as? Number)?.toDouble()
+      ?.takeIf { it.isFinite() && it > 0.0 }
+      ?.coerceAtMost(MAX_WAV_SECONDS)
+      ?: 0.0
+    return ProbeConfig(sourceName, sourceId, sampleRate, simulate, spacing, recordWavSeconds)
   }
 
   @Synchronized private fun startProbe(options: Map<String, Any?>): Map<String, Any?> {
@@ -437,6 +443,7 @@ class StereoMicProbeModule : Module() {
     private var conversationRecord: AudioRecord? = null
     private var conversationAec: AecHandle? = null
     private var stereoThread: Thread? = null
+    @Volatile private var wavWriter: WavWriter? = null
     private var conversationThread: Thread? = null
 
     private val conversationLock = Any()
@@ -459,6 +466,7 @@ class StereoMicProbeModule : Module() {
       val format = record.format
       stereoChannelCount = format.channelCount
       stereoSampleRate = format.sampleRate
+      if (config.recordWavSeconds > 0.0) openWav()
       return mapOf(
         "source" to config.sourceName,
         "requestedSampleRate" to config.sampleRate,
@@ -470,6 +478,7 @@ class StereoMicProbeModule : Module() {
         "routedDevice" to routedDeviceMap(record),
         "aec" to stereoAec?.toMap(),
         "simulateConversationCapture" to config.simulateConversation,
+        "wavPath" to wavWriter?.file?.absolutePath,
         "conversation" to conversationRecord?.let {
           mapOf(
             "sampleRate" to CONVERSATION_RATE,
@@ -479,6 +488,28 @@ class StereoMicProbeModule : Module() {
           )
         }
       )
+    }
+
+    private fun openWav() {
+      val directory = context().getExternalFilesDir(null) ?: fail("open-wav", "External files directory is unavailable")
+      val file = java.io.File(directory, "stereo-probe-${config.sourceName}-${stereoSampleRate}-${System.currentTimeMillis()}.wav")
+      val frames = (config.recordWavSeconds * stereoSampleRate).toLong()
+      wavWriter = try {
+        WavWriter(file, stereoSampleRate, max(1, stereoChannelCount), frames)
+      } catch (error: Throwable) {
+        fail("open-wav", "Could not create ${file.name}: ${error.message ?: error.javaClass.simpleName}")
+      }
+    }
+
+    private fun closeWav() {
+      // Called from the capture thread when full and from shutdown; only one may finalise.
+      val writer = synchronized(this) { wavWriter.also { wavWriter = null } } ?: return
+      try {
+        writer.close()
+        emit("onProbeWavSaved", mapOf("path" to writer.file.absolutePath, "bytes" to writer.file.length()))
+      } catch (error: Throwable) {
+        emitError("close-wav", error.message ?: error.javaClass.simpleName, fatal = false)
+      }
     }
 
     private fun openConversation() {
@@ -551,6 +582,7 @@ class StereoMicProbeModule : Module() {
       try { conversationRecord?.stop() } catch (_: Throwable) {}
       try { stereoThread?.join(500) } catch (_: Throwable) {}
       try { conversationThread?.join(500) } catch (_: Throwable) {}
+      closeWav()
       stereoAec?.release()
       conversationAec?.release()
       try { stereoRecord?.release() } catch (_: Throwable) {}
@@ -661,6 +693,10 @@ class StereoMicProbeModule : Module() {
           }
           if (got < hop.size) continue
           framesRead.addAndGet(HOP_FRAMES.toLong())
+          wavWriter?.let { writer ->
+            writer.write(hop, HOP_FRAMES)
+            if (writer.isFull) closeWav()
+          }
 
           System.arraycopy(left, HOP_FRAMES, left, 0, WINDOW_FRAMES - HOP_FRAMES)
           System.arraycopy(right, HOP_FRAMES, right, 0, WINDOW_FRAMES - HOP_FRAMES)
